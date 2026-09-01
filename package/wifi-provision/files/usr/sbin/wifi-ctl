@@ -1,0 +1,178 @@
+#!/bin/sh
+#
+# Copyright (c) OpenIPC  https://openipc.org  MIT License
+#
+# wifi-ctl -- operator/CLI front end to the provisioning system.
+#
+# Same layering as the web portal: this tool validates input and posts a
+# request on the command channel; wifi-manager is what actually drives the
+# radio. That keeps one implementation of "connect to a network" rather than
+# a CLI copy that drifts from the web one.
+
+LIB=/usr/libexec/wifi
+. "$LIB/wifi-lib.sh"
+. "$LIB/wifi-sta.sh"
+. "$LIB/wifi-ap.sh"
+. "$LIB/wifi-scan.sh"
+
+usage() {
+	cat <<'USAGE'
+Usage: wifi-ctl <command> [arguments]
+
+  status                    Show the current state, network and address.
+  scan                      List the networks the camera can see.
+  rescan                    Run a fresh scan (briefly drops the setup network).
+  configure <ssid> [pass]   Test a network and save it if it works.
+              [--hidden]
+  provision                 Start setup mode (access point + setup page).
+  forget                    Erase the saved Wi-Fi settings and start setup mode.
+  reconnect                 Retry the saved network now.
+  show                      Show the saved network name. Never prints the password.
+
+Passwords are read from the WIFI_PASSWORD environment variable when it is set,
+so they need not appear in the command line or the shell history:
+
+  WIFI_PASSWORD='my secret' wifi-ctl configure 'My Network'
+USAGE
+}
+
+manager_running() {
+	[ -r "$WIFI_RUN_DIR/manager.pid" ] &&
+		wifi_pid_alive "$(cat "$WIFI_RUN_DIR/manager.pid" 2>/dev/null)"
+}
+
+require_manager() {
+	manager_running && return 0
+	echo "wifi-ctl: the Wi-Fi manager is not running (start it with /etc/init.d/S41wifi start)" >&2
+	exit 1
+}
+
+cmd_status() {
+	echo "State:      $(wifi_state_get)"
+	echo "Interface:  $WIFI_IFACE $(wifi_iface_exists && echo present || echo 'MISSING')"
+	if wifi_store_load; then
+		echo "Network:    $(wifi_hex_decode "$WIFI_CFG_SSID")"
+		echo "Security:   $WIFI_CFG_KEY_TYPE"
+		echo "Verified:   $([ "$WIFI_CFG_VERIFIED" = 1 ] && echo yes || echo no)"
+	else
+		echo "Network:    (not configured)"
+	fi
+	_ip=$(wifi_iface_ipv4)
+	echo "Address:    ${_ip:-none}"
+	if wifi_ap_running; then
+		echo "Setup AP:   $(wifi_ap_ssid) on $WIFI_AP_IP"
+	fi
+	_err=$(wifi_error_message)
+	[ -n "$_err" ] && echo "Last error: $_err"
+	return 0
+}
+
+cmd_scan() {
+	if [ ! -r "$WIFI_SCAN_FILE" ]; then
+		echo "No scan results yet. Run 'wifi-ctl rescan'." >&2
+		return 1
+	fi
+	printf '%-32s %6s  %-5s %s\n' "NETWORK" "SIGNAL" "SEC" "FREQ"
+	while IFS='	' read -r _hex _sig _sec _freq; do
+		wifi_is_hex "$_hex" || continue
+		printf '%-32s %5sdBm  %-5s %s MHz\n' \
+			"$(wifi_hex_decode "$_hex")" "$_sig" "$_sec" "$_freq"
+	done < "$WIFI_SCAN_FILE"
+	echo
+	echo "(scanned $(wifi_scan_age) seconds ago)"
+}
+
+cmd_rescan() {
+	require_manager
+	wifi_cmd_post rescan
+	echo "Scan requested. Results appear in a few seconds: wifi-ctl scan"
+}
+
+cmd_configure() {
+	_ssid=$1
+	shift
+	_pass=${WIFI_PASSWORD:-}
+	_hidden=0
+	while [ $# -gt 0 ]; do
+		case "$1" in
+			--hidden) _hidden=1 ;;
+			--) shift; break ;;
+			-*) echo "wifi-ctl: unknown option $1" >&2; return 1 ;;
+			*)  _pass=$1 ;;
+		esac
+		shift
+	done
+
+	[ -n "$_ssid" ] || { echo "wifi-ctl: a network name is required" >&2; return 1; }
+	wifi_validate_ssid_raw "$_ssid" || { echo "wifi-ctl: $WIFI_VALIDATION_ERROR" >&2; return 1; }
+	wifi_validate_key_raw "$_pass" || { echo "wifi-ctl: $WIFI_VALIDATION_ERROR" >&2; return 1; }
+
+	require_manager
+	_ssid_hex=$(printf '%s' "$_ssid" | wifi_hex_encode)
+	_key_hex=
+	[ -n "$_pass" ] && _key_hex=$(printf '%s' "$_pass" | wifi_hex_encode)
+	unset _pass WIFI_PASSWORD
+
+	wifi_result_set testing "" "Connecting..." "" "$_ssid_hex"
+	wifi_cmd_post connect "ssid=$_ssid_hex" "key=$_key_hex" "hidden=$_hidden"
+
+	echo "Testing '$_ssid'..."
+	_i=0
+	while [ $_i -lt 120 ]; do
+		sleep 2
+		_i=$((_i + 2))
+		wifi_result_get || continue
+		case "$WIFI_RES_STATUS" in
+			ok)
+				echo "Connected. Address: ${WIFI_RES_IP:-unknown}"
+				echo "Settings saved."
+				return 0 ;;
+			failed)
+				echo "Failed: $WIFI_RES_MESSAGE" >&2
+				return 1 ;;
+		esac
+	done
+	echo "Timed out waiting for the connection test." >&2
+	return 1
+}
+
+cmd_provision() {
+	require_manager
+	wifi_cmd_post provision
+	echo "Setup mode requested. The camera will start '$(wifi_ap_ssid)' shortly."
+}
+
+cmd_forget() {
+	require_manager
+	wifi_cmd_post forget
+	echo "Wi-Fi settings erased. The camera will start setup mode shortly."
+}
+
+cmd_reconnect() {
+	require_manager
+	wifi_cmd_post reconnect
+	echo "Reconnect requested."
+}
+
+cmd_show() {
+	if wifi_store_load; then
+		# By design there is no command that prints the stored key.
+		echo "$(wifi_hex_decode "$WIFI_CFG_SSID")"
+		return 0
+	fi
+	echo "(not configured)"
+	return 1
+}
+
+case "${1:-}" in
+	status)    cmd_status ;;
+	scan)      cmd_scan ;;
+	rescan)    cmd_rescan ;;
+	configure) shift; cmd_configure "$@" ;;
+	provision) cmd_provision ;;
+	forget|reset) cmd_forget ;;
+	reconnect) cmd_reconnect ;;
+	show)      cmd_show ;;
+	-h|--help|help|'') usage ;;
+	*)         echo "wifi-ctl: unknown command '$1'" >&2; usage >&2; exit 1 ;;
+esac

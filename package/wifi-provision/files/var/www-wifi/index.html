@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Camera Wi-Fi Setup</title>
+<style>
+:root{color-scheme:light dark;--bg:#f4f5f7;--card:#fff;--fg:#16181d;--muted:#6b7280;
+--line:#e3e5e9;--accent:#0b6bcb;--accent-fg:#fff;--bad:#b3261e;--good:#136c34}
+@media(prefers-color-scheme:dark){:root{--bg:#15171b;--card:#1e2126;--fg:#eceef2;
+--muted:#9aa1ac;--line:#2c3038;--accent:#4c9aff;--accent-fg:#06121f;--bad:#ff8a80;--good:#6ee7a0}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 -apple-system,
+BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:env(safe-area-inset-top) 0 0}
+.wrap{max-width:30rem;margin:0 auto;padding:1.25rem}
+h1{font-size:1.35rem;margin:.25rem 0 .25rem}
+.sub{color:var(--muted);font-size:.9rem;margin:0 0 1.25rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:.85rem;
+padding:1rem;margin-bottom:1rem}
+label{display:block;font-weight:600;font-size:.88rem;margin:0 0 .35rem}
+input[type=text],input[type=password],select{width:100%;padding:.7rem .75rem;
+font-size:1rem;border:1px solid var(--line);border-radius:.55rem;background:var(--bg);
+color:var(--fg)}
+button{width:100%;padding:.8rem;font-size:1rem;font-weight:600;border:0;
+border-radius:.55rem;background:var(--accent);color:var(--accent-fg);cursor:pointer}
+button[disabled]{opacity:.55;cursor:default}
+button.ghost{background:transparent;color:var(--accent);border:1px solid var(--line);
+font-weight:500;padding:.55rem;font-size:.9rem}
+.row{display:flex;gap:.5rem;align-items:center}
+.net{display:flex;align-items:center;gap:.6rem;padding:.7rem .25rem;
+border-bottom:1px solid var(--line);cursor:pointer}
+.net:last-child{border-bottom:0}
+.net.sel{background:rgba(11,107,203,.09);border-radius:.45rem}
+.net .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.net .meta{color:var(--muted);font-size:.78rem;white-space:nowrap}
+.bars{display:inline-block;width:1.4rem;letter-spacing:1px;color:var(--muted)}
+.hint{color:var(--muted);font-size:.82rem;margin:.5rem 0 0}
+.msg{padding:.75rem;border-radius:.55rem;font-size:.9rem;margin-bottom:1rem}
+.msg.err{background:rgba(179,38,30,.12);color:var(--bad)}
+.msg.ok{background:rgba(19,108,52,.12);color:var(--good)}
+.hide{display:none}
+.spin{width:1rem;height:1rem;border:2px solid var(--line);border-top-color:var(--accent);
+border-radius:50%;display:inline-block;animation:sp .8s linear infinite;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.center{text-align:center}
+code{background:var(--bg);padding:.1rem .3rem;border-radius:.25rem;font-size:.85em}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Camera Wi-Fi setup</h1>
+  <p class="sub" id="devname">Connect this camera to your Wi-Fi network.</p>
+
+  <div id="banner" class="msg hide"></div>
+
+  <!-- step 1: pick a network -->
+  <div id="step-pick">
+    <div class="card">
+      <div class="row" style="justify-content:space-between;margin-bottom:.4rem">
+        <label style="margin:0">Available networks</label>
+        <button class="ghost" style="width:auto;padding:.35rem .7rem" id="rescan">Rescan</button>
+      </div>
+      <div id="netlist"><p class="hint"><span class="spin"></span> Looking for networks…</p></div>
+      <p class="hint" id="scanage"></p>
+    </div>
+
+    <div class="card">
+      <label for="manual">Or type a network name</label>
+      <input type="text" id="manual" autocomplete="off" autocapitalize="none"
+             spellcheck="false" placeholder="Network name (SSID)" maxlength="32">
+      <p class="hint">Use this for a hidden network that does not appear above.</p>
+    </div>
+  </div>
+
+  <!-- step 2: password -->
+  <div id="step-pass" class="card hide">
+    <label for="psk">Password for <span id="chosen"></span></label>
+    <input type="password" id="psk" autocomplete="off" autocapitalize="none"
+           spellcheck="false" placeholder="Wi-Fi password" maxlength="63">
+    <div class="row" style="margin-top:.6rem">
+      <input type="checkbox" id="show" style="width:auto">
+      <label for="show" style="margin:0;font-weight:400">Show password</label>
+    </div>
+    <p class="hint" id="openhint"></p>
+  </div>
+
+  <button id="connect" disabled>Connect</button>
+  <p class="hint center" id="foot"></p>
+
+  <!-- testing / result -->
+  <div id="step-test" class="hide">
+    <div class="card center">
+      <p><span class="spin"></span></p>
+      <p id="testmsg">Connecting…</p>
+      <p class="hint">The setup network will disappear while the camera tries
+      your Wi-Fi. If the password was wrong it comes back on its own in about
+      a minute — just reconnect to it and try again.</p>
+    </div>
+  </div>
+
+  <div id="step-done" class="hide">
+    <div class="card center">
+      <h1 style="margin-top:0">Connected</h1>
+      <p id="donemsg"></p>
+      <p class="hint">You can now reconnect your phone to your normal Wi-Fi network.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+var API = "/cgi-bin/wifi";
+var chosen = null, chosenSec = "", hidden = false, polling = null;
+
+function $(id) { return document.getElementById(id); }
+
+// Every value from the device is inserted as a text node, never as HTML, so a
+// crafted SSID cannot become markup in the setup page.
+function text(el, s) { el.textContent = s == null ? "" : String(s); }
+
+function get(action, cb) {
+  var x = new XMLHttpRequest();
+  x.open("GET", API + "?action=" + action, true);
+  x.timeout = 15000;
+  x.onload = function () { try { cb(JSON.parse(x.responseText)); } catch (e) { cb(null); } };
+  x.onerror = x.ontimeout = function () { cb(null); };
+  x.send();
+}
+
+function post(action, params, cb) {
+  var x = new XMLHttpRequest();
+  x.open("POST", API, true);
+  x.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+  x.timeout = 20000;
+  x.onload = function () { try { cb(JSON.parse(x.responseText)); } catch (e) { cb(null); } };
+  x.onerror = x.ontimeout = function () { cb(null); };
+  var body = "action=" + encodeURIComponent(action);
+  for (var k in params) {
+    if (Object.prototype.hasOwnProperty.call(params, k))
+      body += "&" + k + "=" + encodeURIComponent(params[k]);
+  }
+  x.send(body);
+}
+
+function banner(kind, msg) {
+  var b = $("banner");
+  if (!msg) { b.className = "msg hide"; return; }
+  b.className = "msg " + kind;
+  text(b, msg);
+}
+
+function bars(dbm) {
+  var n = dbm >= -55 ? 4 : dbm >= -67 ? 3 : dbm >= -78 ? 2 : 1;
+  return "█".repeat(n) + "░".repeat(4 - n);
+}
+
+function renderNets(list) {
+  var box = $("netlist");
+  box.innerHTML = "";
+  if (!list || !list.length) {
+    var p = document.createElement("p");
+    p.className = "hint";
+    text(p, "No networks found. Move the camera closer to your router and press Rescan.");
+    box.appendChild(p);
+    return;
+  }
+  list.forEach(function (n) {
+    var row = document.createElement("div");
+    row.className = "net";
+    var b = document.createElement("span");
+    b.className = "bars";
+    text(b, bars(n.signal));
+    var nm = document.createElement("span");
+    nm.className = "nm";
+    text(nm, n.ssid);
+    var meta = document.createElement("span");
+    meta.className = "meta";
+    text(meta, n.security + (n.freq >= 5000 ? " · 5 GHz" : ""));
+    row.appendChild(b); row.appendChild(nm); row.appendChild(meta);
+    row.onclick = function () { pick(n.ssid, n.security, false, row); };
+    box.appendChild(row);
+  });
+}
+
+function pick(ssid, security, isHidden, row) {
+  chosen = ssid; chosenSec = security || "WPA2"; hidden = !!isHidden;
+  var rows = document.querySelectorAll(".net");
+  for (var i = 0; i < rows.length; i++) rows[i].className = "net";
+  if (row) row.className = "net sel";
+  if (!isHidden) $("manual").value = "";
+  text($("chosen"), ssid);
+  $("step-pass").className = "card";
+  var open = chosenSec === "Open";
+  $("psk").disabled = open;
+  $("psk").value = open ? "" : $("psk").value;
+  text($("openhint"), open ? "This is an open network — no password needed." : "");
+  $("connect").disabled = false;
+}
+
+$("manual").oninput = function () {
+  var v = this.value.trim();
+  if (v) pick(v, "WPA2", true, null);
+  else { chosen = null; $("connect").disabled = true; $("step-pass").className = "card hide"; }
+};
+
+$("show").onchange = function () { $("psk").type = this.checked ? "text" : "password"; };
+
+$("rescan").onclick = function () {
+  var b = this;
+  b.disabled = true;
+  text(b, "Scanning…");
+  banner("", "");
+  get("rescan", function () {
+    // The rescan drops the setup network for a few seconds; keep asking
+    // until it answers again.
+    var tries = 0;
+    (function again() {
+      setTimeout(function () {
+        get("scan", function (r) {
+          if (r && r.ok) {
+            renderNets(r.networks);
+            showAge(r.age);
+            b.disabled = false;
+            text(b, "Rescan");
+          } else if (++tries < 20) again();
+          else { b.disabled = false; text(b, "Rescan"); banner("err", "Scan timed out. Please try again."); }
+        });
+      }, 2000);
+    })();
+  });
+};
+
+function showAge(age) {
+  if (age == null || age < 0) { text($("scanage"), ""); return; }
+  text($("scanage"), age < 60 ? "Scanned just now."
+    : "Scanned " + Math.round(age / 60) + " min ago — press Rescan to refresh.");
+}
+
+$("connect").onclick = function () {
+  if (!chosen) return;
+  this.disabled = true;
+  $("step-pick").className = "hide";
+  $("step-pass").className = "card hide";
+  $("connect").className = "hide";
+  $("step-test").className = "";
+  banner("", "");
+  post("connect", { ssid: chosen, psk: $("psk").disabled ? "" : $("psk").value,
+                    hidden: hidden ? "1" : "0" }, function (r) {
+    if (r && r.ok) { pollResult(); return; }
+    // A failed POST is usually the AP already going down for the test, which
+    // is expected — keep polling rather than reporting an error.
+    pollResult();
+  });
+};
+
+function pollResult() {
+  var tries = 0;
+  polling = setInterval(function () {
+    tries++;
+    get("result", function (r) {
+      if (!r || !r.ok) {
+        if (tries > 90) { clearInterval(polling); showFailed("The camera stopped responding. Reconnect to the setup network and try again."); }
+        return;
+      }
+      if (r.status === "ok") {
+        clearInterval(polling);
+        $("step-test").className = "hide";
+        $("step-done").className = "";
+        text($("donemsg"), r.ip ? ("The camera joined " + r.ssid + " and its address is " + r.ip + ".")
+                                : ("The camera joined " + r.ssid + "."));
+      } else if (r.status === "failed") {
+        clearInterval(polling);
+        showFailed(r.message || "Could not connect to that network.");
+      } else if (tries > 90) {
+        clearInterval(polling);
+        showFailed("The connection test timed out. Reconnect to the setup network and try again.");
+      }
+    });
+  }, 2000);
+}
+
+function showFailed(msg) {
+  $("step-test").className = "hide";
+  $("step-pick").className = "";
+  $("step-pass").className = "card";
+  $("connect").className = "";
+  $("connect").disabled = false;
+  banner("err", msg);
+  refresh();
+}
+
+function refresh() {
+  get("status", function (s) {
+    if (s && s.ok) {
+      if (s.ap_ssid) text($("devname"), "Setting up " + s.ap_ssid + ".");
+      if (s.error) banner("err", s.error);
+      text($("foot"), s.configured && s.ssid ? "Currently saved network: " + s.ssid : "");
+    }
+  });
+  get("scan", function (r) {
+    if (r && r.ok) { renderNets(r.networks); showAge(r.age); }
+    else renderNets([]);
+  });
+}
+
+refresh();
+</script>
+</body>
+</html>

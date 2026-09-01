@@ -1,0 +1,241 @@
+#!/bin/sh
+#
+# Copyright (c) OpenIPC  https://openipc.org  MIT License
+#
+# wifi -- CGI backend for the provisioning portal.
+#
+# This is the only code in the system that reads attacker-controlled bytes.
+# Two properties keep it safe, and both are structural rather than careful:
+#
+#   1. Form decoding happens entirely inside awk, which emits the decoded
+#      value as hex. No branch of this script ever holds a raw form value in
+#      a shell variable, so there is nothing for the shell to re-interpret --
+#      an SSID of $(reboot) leaves awk as the 18 characters 2428726562...
+#   2. This script never runs a network command. It validates, then posts a
+#      request on the command channel for wifi-manager to act on. The CGI's
+#      whole authority is "write a hex file into /tmp/wifi".
+#
+# It also never reveals a stored credential: there is no code path that reads
+# the key field out of the store and puts it in a response.
+
+LIB=/usr/libexec/wifi
+. "$LIB/wifi-lib.sh"
+
+MAX_BODY=4096
+
+# ------------------------------------------------------------- responses --
+
+respond() {
+	printf 'Status: %s\r\n' "$1"
+	printf 'Content-Type: application/json; charset=utf-8\r\n'
+	printf 'Cache-Control: no-store\r\n'
+	printf 'X-Content-Type-Options: nosniff\r\n'
+	printf 'Connection: close\r\n'
+	printf '\r\n'
+	printf '%s\n' "$2"
+}
+
+fail() {
+	respond "$1" "{\"ok\":false,\"error\":$(wifi_json_str "$2")}"
+	exit 0
+}
+
+# ---------------------------------------------------------- form decoding --
+#
+# stdin: application/x-www-form-urlencoded
+# stdout: one "<name> <hexvalue>" line per field, names restricted to
+# [A-Za-z0-9_] so a crafted field name cannot become anything else.
+
+form_to_hex() {
+	awk '
+	BEGIN {
+		for (i = 0; i < 256; i++) ord[sprintf("%c", i)] = i
+		for (i = 0; i < 16; i++) { hv[sprintf("%x", i)] = i; hv[sprintf("%X", i)] = i }
+	}
+	function dec(s,   i, n, c, d, out) {
+		out = ""
+		n = length(s)
+		i = 1
+		while (i <= n) {
+			c = substr(s, i, 1)
+			if (c == "%" && i + 2 <= n) {
+				d = substr(s, i + 1, 1)
+				e = substr(s, i + 2, 1)
+				if ((d in hv) && (e in hv)) {
+					out = out sprintf("%02x", hv[d] * 16 + hv[e])
+					i += 3
+					continue
+				}
+			}
+			if (c == "+") { out = out "20"; i++; continue }
+			out = out sprintf("%02x", ord[c])
+			i++
+		}
+		return out
+	}
+	function unhex(h,   i, out) {
+		# Field names only: hex back to ASCII for the name comparison.
+		out = ""
+		for (i = 1; i <= length(h); i += 2)
+			out = out sprintf("%c", strtonum_fallback(substr(h, i, 2)))
+		return out
+	}
+	function strtonum_fallback(h2,   a, b) {
+		a = hv[substr(h2, 1, 1)]
+		b = hv[substr(h2, 2, 1)]
+		return a * 16 + b
+	}
+	{
+		n = split($0, pairs, "&")
+		for (p = 1; p <= n; p++) {
+			eq = index(pairs[p], "=")
+			if (eq == 0) continue
+			name = unhex(dec(substr(pairs[p], 1, eq - 1)))
+			if (name !~ /^[A-Za-z0-9_]+$/) continue
+			print name " " dec(substr(pairs[p], eq + 1))
+		}
+	}'
+}
+
+# Pull one field out of the decoded form. Result is hex or empty; callers
+# must still range-check the decoded value.
+field() {
+	printf '%s\n' "$FORM" | awk -v want="$1" '$1 == want { print $2; exit }'
+}
+
+read_form() {
+	FORM=
+	case "$REQUEST_METHOD" in
+		POST)
+			_len=${CONTENT_LENGTH:-0}
+			case "$_len" in
+				''|*[!0-9]*) fail "400 Bad Request" "Malformed request." ;;
+			esac
+			[ "$_len" -le "$MAX_BODY" ] || fail "413 Payload Too Large" "Request too large."
+			[ "$_len" -gt 0 ] || return 0
+			FORM=$(head -c "$_len" | form_to_hex)
+			;;
+		*)
+			FORM=$(printf '%s' "$QUERY_STRING" | form_to_hex)
+			;;
+	esac
+}
+
+# ------------------------------------------------------------- endpoints --
+
+api_status() {
+	_state=$(wifi_state_get)
+	_ip=$(wifi_iface_ipv4)
+	_ssid=
+	if wifi_store_load; then
+		_ssid=$(wifi_hex_decode "$WIFI_CFG_SSID")
+	fi
+	respond "200 OK" "$(printf '{"ok":true,"state":%s,"ssid":%s,"ip":%s,"configured":%s,"ap_ssid":%s,"hostname":%s,"error":%s}' \
+		"$(wifi_json_str "$_state")" \
+		"$(wifi_json_str "$_ssid")" \
+		"$(wifi_json_str "$_ip")" \
+		"$(wifi_store_exists && echo true || echo false)" \
+		"$(wifi_json_str "$(wifi_ap_ssid)")" \
+		"$(wifi_json_str "$(wifi_hostname)")" \
+		"$(wifi_json_str "$(wifi_error_message)")")"
+}
+
+api_scan() {
+	_age=$(wifi_scan_age)
+	_out='{"ok":true,"age":'$_age',"networks":['
+	_first=1
+	if [ -r "$WIFI_SCAN_FILE" ]; then
+		while IFS='	' read -r _hex _sig _sec _freq; do
+			wifi_is_hex "$_hex" || continue
+			_ssid=$(wifi_hex_decode "$_hex") || continue
+			[ -n "$_ssid" ] || continue
+			case "$_sig" in ''|*[!0-9-]*) _sig=0 ;; esac
+			case "$_freq" in ''|*[!0-9]*) _freq=0 ;; esac
+			[ "$_first" = "1" ] || _out="$_out,"
+			_first=0
+			_out="$_out$(printf '{"ssid":%s,"signal":%s,"security":%s,"freq":%s}' \
+				"$(wifi_json_str "$_ssid")" "$_sig" \
+				"$(wifi_json_str "$_sec")" "$_freq")"
+		done < "$WIFI_SCAN_FILE"
+	fi
+	respond "200 OK" "$_out]}"
+}
+
+api_rescan() {
+	wifi_cmd_post rescan || fail "500 Internal Server Error" "Could not start a scan."
+	respond "200 OK" '{"ok":true}'
+}
+
+api_connect() {
+	_ssid_hex=$(field ssid)
+	_key_hex=$(field psk)
+	_hidden_hex=$(field hidden)
+
+	[ -n "$_ssid_hex" ] || fail "400 Bad Request" "Please choose a network."
+	wifi_is_hex "$_ssid_hex" || fail "400 Bad Request" "Malformed network name."
+
+	_ssid=$(wifi_hex_decode "$_ssid_hex") ||
+		fail "400 Bad Request" "Malformed network name."
+	wifi_validate_ssid_raw "$_ssid" ||
+		fail "400 Bad Request" "$WIFI_VALIDATION_ERROR"
+
+	_key=
+	if [ -n "$_key_hex" ]; then
+		wifi_is_hex "$_key_hex" || fail "400 Bad Request" "Malformed password."
+		_key=$(wifi_hex_decode "$_key_hex") ||
+			fail "400 Bad Request" "Malformed password."
+		wifi_validate_key_raw "$_key" ||
+			fail "400 Bad Request" "$WIFI_VALIDATION_ERROR"
+	fi
+
+	_hidden=0
+	if [ -n "$_hidden_hex" ]; then
+		case "$(wifi_hex_decode "$_hidden_hex")" in
+			1|on|true|yes) _hidden=1 ;;
+		esac
+	fi
+
+	# From here on only hex crosses the boundary into the manager.
+	unset _ssid _key
+	wifi_result_set testing "" "Connecting to your Wi-Fi network..." "" "$_ssid_hex"
+	if ! wifi_cmd_post connect "ssid=$_ssid_hex" "key=$_key_hex" "hidden=$_hidden"; then
+		fail "500 Internal Server Error" "Could not start the connection test."
+	fi
+	wifi_log "connection requested from portal"
+	respond "202 Accepted" '{"ok":true,"testing":true}'
+}
+
+api_result() {
+	wifi_result_get
+	_ssid=
+	[ -n "$WIFI_RES_SSID" ] && _ssid=$(wifi_hex_decode "$WIFI_RES_SSID")
+	respond "200 OK" "$(printf '{"ok":true,"status":%s,"code":%s,"message":%s,"ip":%s,"ssid":%s,"state":%s}' \
+		"$(wifi_json_str "$WIFI_RES_STATUS")" \
+		"$(wifi_json_str "$WIFI_RES_CODE")" \
+		"$(wifi_json_str "$WIFI_RES_MESSAGE")" \
+		"$(wifi_json_str "$WIFI_RES_IP")" \
+		"$(wifi_json_str "$_ssid")" \
+		"$(wifi_json_str "$(wifi_state_get)")")"
+}
+
+# ------------------------------------------------------------------ main --
+
+read_form
+
+ACTION_HEX=$(field action)
+ACTION=
+if [ -n "$ACTION_HEX" ]; then
+	ACTION=$(wifi_hex_decode "$ACTION_HEX" 2>/dev/null)
+fi
+# Whitelist: anything not on this list is not dispatched at all.
+case "$ACTION" in
+	status)  api_status ;;
+	scan)    api_scan ;;
+	rescan)  api_rescan ;;
+	connect)
+		[ "$REQUEST_METHOD" = "POST" ] ||
+			fail "405 Method Not Allowed" "Credentials must be submitted by POST."
+		api_connect ;;
+	result)  api_result ;;
+	*)       fail "400 Bad Request" "Unknown request." ;;
+esac

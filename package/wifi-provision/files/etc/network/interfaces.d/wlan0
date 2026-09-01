@@ -1,0 +1,12 @@
+# Managed by wifi-provision.
+#
+# The stock OpenIPC stanza (kept as wlan0.stock) started wpa_supplicant here
+# from the U-Boot environment. wifi-manager owns the supplicant, hostapd and
+# DHCP on this interface instead, so ifup only has to bring the link up --
+# two owners of one radio is a race, and the loser is whichever set of
+# credentials the user actually typed in.
+#
+# To go back to the stock behaviour: move wlan0.stock over this file and
+# disable /etc/init.d/S41wifi.
+iface wlan0 inet manual
+    pre-up ip link set dev wlan0 up

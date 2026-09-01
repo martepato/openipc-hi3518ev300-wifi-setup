@@ -1,0 +1,72 @@
+#!/bin/sh
+#
+# Copyright (c) OpenIPC  https://openipc.org  MIT License
+#
+# S41wifi -- start the Wi-Fi provisioning manager.
+#
+# Runs after S40network (which brings up lo and Ethernet) and before
+# S95majestic, so the setup page owns port 80 before the streamer claims it.
+# S40network's own wlan0 path is disabled by this package: it replaces
+# /etc/network/interfaces.d/wlan0 with an "inet manual" stanza so ifup only
+# brings the link up, and wifi-manager is the single owner of the supplicant,
+# hostapd and DHCP on that interface.
+
+DAEMON=wifi-manager
+DAEMON_PATH=/usr/sbin/$DAEMON
+PIDFILE=/tmp/wifi/manager.pid
+
+# Match S95majestic: find the daemon by executable rather than trusting a
+# pidfile that goes stale across an unclean shutdown.
+running() {
+	start-stop-daemon -t -K -q -x /bin/sh -n "$DAEMON" 2>/dev/null ||
+		{ [ -r "$PIDFILE" ] && [ -d "/proc/$(cat "$PIDFILE" 2>/dev/null)" ]; }
+}
+
+start() {
+	echo -n "Starting Wi-Fi manager: "
+	if running; then
+		echo "OK (already running)"
+		return 0
+	fi
+	mkdir -p /tmp/wifi
+	chmod 700 /tmp/wifi
+	start-stop-daemon -b -S -q -x "$DAEMON_PATH" -- run
+	case $? in
+		0|1) echo "OK" ;;
+		*)   echo "FAIL"; return 1 ;;
+	esac
+	# The button watcher is optional and only useful when the integrator has
+	# told us which GPIO the button is on.
+	[ -x /usr/sbin/wifi-button-watch ] &&
+		start-stop-daemon -b -S -q -x /usr/sbin/wifi-button-watch >/dev/null 2>&1
+	return 0
+}
+
+stop() {
+	echo -n "Stopping Wi-Fi manager: "
+	start-stop-daemon -K -q -x /usr/sbin/wifi-button-watch 2>/dev/null
+	if [ -r "$PIDFILE" ]; then
+		_pid=$(cat "$PIDFILE" 2>/dev/null)
+		[ -n "$_pid" ] && kill "$_pid" 2>/dev/null
+		_i=0
+		while [ -d "/proc/$_pid" ] && [ $_i -lt 10 ]; do
+			_i=$((_i + 1))
+			sleep 1
+		done
+	fi
+	start-stop-daemon -K -q -x "$DAEMON_PATH" 2>/dev/null
+	echo "OK"
+	return 0
+}
+
+case "$1" in
+	start|stop)
+		$1 ;;
+	restart|reload)
+		stop; start ;;
+	status)
+		/usr/sbin/wifi-ctl status ;;
+	*)
+		echo "Usage: $0 {start|stop|restart|status}"
+		exit 1 ;;
+esac
