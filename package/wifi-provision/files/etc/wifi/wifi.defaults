@@ -109,5 +109,45 @@
 #WIFI_BUTTON_HOLD=5
 #WIFI_BUTTON_ACTIVE_LOW=1
 
+# ------------------------------------------------------------------- LEDs --
+# Show the provisioning state on the camera's LEDs. Empty (default) disables
+# the indicator entirely -- there is no board-independent way to know which
+# GPIO is an LED rather than an IR-cut driver or a sensor reset.
+#
+# Named by role, not colour, so a board with different colours still makes
+# sense. Both lit at once is white on many cameras, which is what "busy" uses.
+#
+#   WARN  needs attention        OK  healthy / ready
+#
+# Numbers are the kernel's sysfs numbering (the N in /sys/class/gpio/gpioN).
+#   Xiaomi MJSXJ02HL:  WARN=52 (orange), OK=53 (blue), active high
+#
+#WIFI_LED_WARN_GPIO=
+#WIFI_LED_OK_GPIO=
+#WIFI_LED_ACTIVE_LOW=0
+
+# A board LED daemon to pause while we own the LEDs, and restart when the
+# camera is connected and we hand them back. On the MJSXJ02HL that is
+# S00autoled, which shows whether majestic is running -- a useful indicator
+# once the camera is on the network, and a misleading one during setup.
+#   Xiaomi MJSXJ02HL:  WIFI_LED_PAUSE_SERVICE=/etc/init.d/S00autoled
+#WIFI_LED_PAUSE_SERVICE=
+
+# For boards whose LEDs are not plain GPIOs (PWM, an i2c expander, a vendor
+# tool). Called with the state name as $1 on each change; it then owns the
+# display entirely and the GPIO settings above are ignored.
+#WIFI_LED_HOOK=
+
+# What the patterns mean:
+#   solid amber                booting
+#   amber double-blink         no Wi-Fi adapter found -- will not self-resolve
+#   alternating amber/blue     waiting to be set up: join OpenIPC-XXXX
+#   white flicker              testing your password, do not power off
+#   blue slow blink            joining the saved network
+#   amber slow blink           lost the network, retrying
+#   steady blue, then normal   connected
+#
+# Check the wiring without provisioning a camera:  wifi-led test
+
 # ---------------------------------------------------------------- hostname --
 #WIFI_HOSTNAME_PREFIX=openipc       # hostname becomes <prefix>-<4 hex digits>

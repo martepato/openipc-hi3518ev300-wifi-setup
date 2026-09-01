@@ -288,6 +288,131 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+section "LED indicator"
+
+# Driven against a directory of ordinary files standing in for sysfs, so the
+# patterns, the polarity and the hand-back are all exercised without a camera.
+LEDW=$WORK/gpio
+mkdir -p "$LEDW/gpio52" "$LEDW/gpio53" "$WORK/bin"
+for g in 52 53; do
+	echo out > "$LEDW/gpio$g/direction"
+	echo 0 > "$LEDW/gpio$g/value"
+done
+touch "$LEDW/export"
+# busybox has usleep; a build host may not.
+if ! command -v usleep >/dev/null 2>&1; then
+	printf '#!/bin/sh\nexec sleep 0.1\n' > "$WORK/bin/usleep"
+	chmod +x "$WORK/bin/usleep"
+	PATH=$WORK/bin:$PATH
+	export PATH
+fi
+
+WIFI_GPIO_SYSFS=$LEDW
+WIFI_LIB_DIR=$PKG/usr/libexec/wifi
+export WIFI_GPIO_SYSFS WIFI_LIB_DIR
+
+led_val() { printf '%s%s' "$(cat "$LEDW/gpio52/value")" "$(cat "$LEDW/gpio53/value")"; }
+
+# Sample a state for a moment and report which distinct LED combinations it
+# produced, sorted -- enough to tell the patterns apart without asserting on
+# exact timing, which would make the suite flaky.
+led_combos() {
+	echo "$1" > "$WIFI_STATE_FILE"
+	printf 'WIFI_LED_WARN_GPIO=52\nWIFI_LED_OK_GPIO=53\nWIFI_LED_ACTIVE_LOW=%s\n' \
+		"${2:-0}" > "$WIFI_DEFAULTS"
+	sh "$PKG/usr/sbin/wifi-led" run >/dev/null 2>&1 &
+	_lp=$!
+	_seen=
+	_i=0
+	while [ $_i -lt 22 ]; do
+		_seen="$_seen$(led_val) "
+		sleep 0.1
+		_i=$((_i + 1))
+	done
+	kill "$_lp" 2>/dev/null
+	wait "$_lp" 2>/dev/null
+	printf '%s' "$_seen" | tr ' ' '\n' | grep -v '^$' | sort -u | tr '\n' ',' 
+}
+
+# 10 = amber only, 01 = blue only, 11 = both, 00 = off.
+case "$(led_combos INIT)" in
+	*10*) ok "INIT lights the warn LED" ;;
+	*)    bad "INIT pattern" "combos: $(led_combos INIT)" ;;
+esac
+
+_prov=$(led_combos PROVISIONING)
+case "$_prov" in
+	*10*) case "$_prov" in
+		*01*) ok "PROVISIONING alternates warn and ok" ;;
+		*)    bad "PROVISIONING never lit the ok LED" "combos: $_prov" ;;
+	      esac ;;
+	*)    bad "PROVISIONING never lit the warn LED" "combos: $_prov" ;;
+esac
+
+case "$(led_combos TESTING)" in
+	*11*) ok "TESTING lights both (white)" ;;
+	*)    bad "TESTING never lit both LEDs" ;;
+esac
+
+_conn=$(led_combos CONNECTING)
+case "$_conn" in
+	*01*) case "$_conn" in
+		*10*) bad "CONNECTING lit the warn LED" "combos: $_conn" ;;
+		*)    ok "CONNECTING uses the ok LED only" ;;
+	      esac ;;
+	*)    bad "CONNECTING never lit the ok LED" "combos: $_conn" ;;
+esac
+
+_recon=$(led_combos RECONNECTING)
+case "$_recon" in
+	*10*) case "$_recon" in
+		*01*) bad "RECONNECTING lit the ok LED" "combos: $_recon" ;;
+		*)    ok "RECONNECTING uses the warn LED only" ;;
+	      esac ;;
+	*)    bad "RECONNECTING never lit the warn LED" "combos: $_recon" ;;
+esac
+
+# Active-low boards must invert, or a "lit" LED is dark on real hardware.
+case "$(led_combos INIT 1)" in
+	*01*) ok "active-low inverts the written value" ;;
+	*)    bad "active-low did not invert" "combos: $(led_combos INIT 1)" ;;
+esac
+
+# Connected: brief confirmation, then the LEDs go back to the board.
+printf 'WIFI_LED_WARN_GPIO=52\nWIFI_LED_OK_GPIO=53\n' > "$WIFI_DEFAULTS"
+echo CONNECTED > "$WIFI_STATE_FILE"
+sh "$PKG/usr/sbin/wifi-led" run >/dev/null 2>&1 &
+_lp=$!
+sleep 1
+_during=$(led_val)
+sleep 4
+_after=$(led_val)
+kill "$_lp" 2>/dev/null; wait "$_lp" 2>/dev/null
+is "CONNECTED confirms on the ok LED" "$_during" "01"
+is "CONNECTED then releases the LEDs" "$_after" "00"
+no_ test -e "$WORK/run/led.claimed"
+
+# SIGTERM must hand the LEDs back rather than freeze them mid-blink.
+echo PROVISIONING > "$WIFI_STATE_FILE"
+sh "$PKG/usr/sbin/wifi-led" run >/dev/null 2>&1 &
+_lp=$!
+sleep 1
+kill -TERM "$_lp" 2>/dev/null
+sleep 1
+wait "$_lp" 2>/dev/null
+is "SIGTERM leaves the LEDs off" "$(led_val)" "00"
+no_ test -e "$WORK/run/led.pid"
+
+# The default build configures no LEDs at all and must stay silent.
+: > "$WIFI_DEFAULTS"
+_out=$(sh "$PKG/usr/sbin/wifi-led" run 2>&1)
+_rc=$?
+is "no LEDs configured exits 0" "$_rc" "0"
+is "no LEDs configured says nothing" "$_out" ""
+
+unset WIFI_GPIO_SYSFS WIFI_LIB_DIR
+
+# ---------------------------------------------------------------------------
 printf '\n%s\n' "-----------------------------------------"
 printf '%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

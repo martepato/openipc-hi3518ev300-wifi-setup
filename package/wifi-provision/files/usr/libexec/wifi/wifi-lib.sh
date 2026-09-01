@@ -68,6 +68,16 @@ WIFI_BUTTON_GPIO=
 WIFI_BUTTON_HOLD=5
 WIFI_BUTTON_ACTIVE_LOW=1
 WIFI_HOSTNAME_PREFIX=openipc
+WIFI_LED_WARN_GPIO=
+WIFI_LED_OK_GPIO=
+WIFI_LED_ACTIVE_LOW=0
+WIFI_LED_PAUSE_SERVICE=
+WIFI_LED_HOOK=
+
+# Root of the sysfs GPIO interface. Never changes on a real camera; it is a
+# variable so the LED patterns and the button watcher can be exercised
+# against a directory of ordinary files on a build host.
+WIFI_GPIO_SYSFS=${WIFI_GPIO_SYSFS:-/sys/class/gpio}
 
 [ -r "$WIFI_DEFAULTS" ] && . "$WIFI_DEFAULTS"
 

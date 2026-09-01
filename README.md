@@ -105,6 +105,9 @@ diagnostic commands to settle it. Nothing about the chip has been invented.
 - **No Wi‑Fi hardware, or a driver that will not load** → logged clearly, and
   the camera boots and streams normally anyway.
 - **Change networks later** → a GPIO button held 5 s, or `wifi-ctl provision`.
+- **Status on the LEDs**, where the board has them — alternating colours means
+  "waiting to be set up", so first-time setup is no longer a silent guess.
+  Released back to the camera's own indicator once connected.
 
 ## Documentation
 

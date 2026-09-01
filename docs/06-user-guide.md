@@ -33,6 +33,22 @@
 You never have to type the password twice or reset anything: a wrong password
 cannot lock you out.
 
+## What the lights mean
+
+If your camera has status LEDs and the firmware knows about them, they tell
+you where setup has got to. Colours vary by model; on the Xiaomi MJSXJ02HL
+they are orange and blue:
+
+| Light | Meaning |
+|---|---|
+| Solid orange | Starting up. Wait a moment. |
+| Orange flashing twice, over and over | No Wi-Fi adapter found. This one needs help — see the troubleshooting guide. |
+| **Alternating orange and blue** | **Ready for setup. Join `OpenIPC-XXXX` on your phone.** |
+| Flickering white | Trying the password you entered. Don't unplug it. |
+| Slow blue flash | Joining your Wi-Fi. |
+| Slow orange flash | Lost your Wi-Fi; keeps trying. |
+| Steady blue, then back to normal | Connected. |
+
 ## Things that work
 
 - Network names with spaces, accents or non-Latin characters.

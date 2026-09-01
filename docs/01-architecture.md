@@ -84,7 +84,15 @@ the user just typed in.
         |       +-- wifi-dnsd                captive DNS
         |
         +--> wifi-button-watch               optional, GPIO hold-to-reset
+        |
+        +--> wifi-led                        optional, shows state on the LEDs
 ```
+
+`wifi-led` is a *reader*, not a client: it follows `/tmp/wifi/state`, which
+the manager already writes on every transition, so there is no second channel
+to keep in sync and killing it cannot affect provisioning. It claims the LEDs
+only while the camera needs attention and hands them back — pausing and
+restarting the board's own LED daemon — once connected.
 
 Everything else is a *client* of the manager:
 

@@ -78,13 +78,46 @@ calls `set_mmc`, which pokes `/sys/devices/platform/jzmmc_v1.2.N/present` — an
 Ingenic path that does not exist on HiSilicon — and it does no pin muxing. It
 fails silently: nothing errors, and `wlan0` simply never appears.
 
-## Recommended `/etc/wifi/wifi.defaults`
+## Board settings
+
+The installer writes these for you from
+`install/board-profiles/mjsxj02hl.defaults`:
 
 ```sh
-# Xiaomi MJSXJ02HL
-WIFI_BUTTON_GPIO=0              # the reset button, sysfs numbering
-WIFI_BUTTON_ACTIVE_LOW=1        # 0 = pressed
-WIFI_AP_DRIVER=nl80211          # optional: the probe already gets this right
+WIFI_BUTTON_GPIO=0                            # reset button, sysfs numbering
+WIFI_BUTTON_ACTIVE_LOW=1                      # 0 = pressed
+WIFI_LED_WARN_GPIO=52                         # orange
+WIFI_LED_OK_GPIO=53                           # blue
+WIFI_LED_ACTIVE_LOW=0
+WIFI_LED_PAUSE_SERVICE=/etc/init.d/S00autoled
+WIFI_PORTAL_STOP_MAJESTIC=0                   # majestic is on 85, not 80
+```
+
+## What the LEDs tell you
+
+Setup used to be silent: between power-on and a phone seeing `OpenIPC-XXXX`
+there was nothing to say whether the camera was booting, waiting, or had no
+Wi-Fi hardware at all. Now:
+
+| LED | Meaning |
+|---|---|
+| Solid orange | Booting |
+| Orange double-blink, repeating | **No Wi-Fi adapter found** — will not fix itself |
+| **Alternating orange/blue** | **Waiting to be set up — join `OpenIPC-XXXX`** |
+| White flicker | Testing your password; do not power off |
+| Blue blink, slow | Joining the saved network |
+| Orange blink, slow | Lost the network, retrying |
+| Steady blue ~3 s, then normal | Connected |
+
+After that the LEDs go back to `S00autoled` (orange = majestic stopped,
+blue = running), because a camera that is on the network can say more about
+itself than a LED can. `wifi-led` pauses `S00autoled` while it owns them and
+restarts it on the way out, so the two never fight over the same pins.
+
+Check the wiring without provisioning anything:
+
+```sh
+wifi-ctl led-test        # walks every pattern once
 ```
 
 ### The button is shared, deliberately
@@ -132,7 +165,6 @@ on the camera. Untested specifically:
 - The `0x10020028` write is described here from the SDHCI register map and the
   behaviour it produces; the bit is not documented in a public datasheet I can
   cite. It is transcribed verbatim from the working stock configuration.
-- The GPIO 52/53 LEDs are not wired to provisioning state. Showing setup mode
-  on the LED would be a genuine improvement on a device with no screen, and
-  `led_control.sh` makes it a few lines — but it is not implemented, because
-  nothing in scope asked for it.
+- The LED patterns were verified against a directory of files standing in for
+  sysfs, not against the real GPIOs. The numbers, direction and polarity come
+  from `led_control.sh`; confirm on hardware with `wifi-led test`.

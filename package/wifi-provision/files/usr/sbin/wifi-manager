@@ -21,7 +21,7 @@
 # ISP outage, must not turn a mounted camera into an open hotspot that the
 # owner then has to re-provision.
 
-LIB=/usr/libexec/wifi
+LIB=${WIFI_LIB_DIR:-/usr/libexec/wifi}
 . "$LIB/wifi-lib.sh"
 . "$LIB/wifi-sta.sh"
 . "$LIB/wifi-ap.sh"

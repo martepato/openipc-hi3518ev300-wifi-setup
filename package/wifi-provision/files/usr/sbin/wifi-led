@@ -1,0 +1,257 @@
+#!/bin/sh
+#
+# Copyright (c) OpenIPC  https://openipc.org  MIT License
+#
+# wifi-led -- shows the provisioning state on the camera's LEDs.
+#
+# Without this, first-time setup is guesswork: the camera has no screen, and
+# between power-on and a phone seeing OpenIPC-XXXX there is nothing at all to
+# say whether it is booting, waiting to be set up, testing a password, or has
+# no Wi-Fi hardware.
+#
+# It drives up to two sysfs GPIO LEDs, named by role rather than colour so a
+# board with different colours still makes sense:
+#
+#   WIFI_LED_WARN_GPIO   needs attention   (orange on the Xiaomi MJSXJ02HL)
+#   WIFI_LED_OK_GPIO     healthy / ready   (blue)
+#
+# Both lit at once is white on that camera, which is why "busy" uses it.
+#
+# The daemon follows $WIFI_RUN_DIR/state, which wifi-manager already writes on
+# every transition -- so there is no second channel to keep in sync, and this
+# process can be killed or never started without affecting provisioning at all.
+#
+# Boards whose LEDs are not plain GPIOs (PWM, an i2c expander, a vendor tool)
+# set WIFI_LED_HOOK instead and get the state name as $1.
+
+LIB=${WIFI_LIB_DIR:-/usr/libexec/wifi}
+. "$LIB/wifi-lib.sh"
+
+WIFI_LED_PID=$WIFI_RUN_DIR/led.pid
+WIFI_LED_CLAIMED=$WIFI_RUN_DIR/led.claimed
+
+# --------------------------------------------------------------- GPIO I/O --
+
+led_export() {
+	[ -n "$1" ] || return 1
+	_d=$WIFI_GPIO_SYSFS/gpio$1
+	if [ ! -d "$_d" ]; then
+		echo "$1" > "$WIFI_GPIO_SYSFS/export" 2>/dev/null
+		# The pin may already belong to another script (led_control.sh on the
+		# MJSXJ02HL exports these), in which case the export fails and the
+		# directory is there anyway. Only the directory matters.
+		sleep 1
+	fi
+	[ -d "$_d" ] || return 1
+	[ "$(cat "$_d/direction" 2>/dev/null)" = "out" ] ||
+		echo out > "$_d/direction" 2>/dev/null
+	[ -w "$_d/value" ]
+}
+
+# $1 = gpio, $2 = 1 for lit
+led_write() {
+	[ -n "$1" ] || return 0
+	if [ "${WIFI_LED_ACTIVE_LOW:-0}" = "1" ]; then
+		[ "$2" = "1" ] && _v=0 || _v=1
+	else
+		_v=$2
+	fi
+	echo "$_v" > "$WIFI_GPIO_SYSFS/gpio$1/value" 2>/dev/null
+}
+
+# $1 = warn lit, $2 = ok lit
+led_show() {
+	led_write "$WIFI_LED_WARN_GPIO" "$1"
+	led_write "$WIFI_LED_OK_GPIO" "$2"
+}
+
+# Sub-second delay. busybox sleep here is built without float support
+# (FEATURE_FLOAT_SLEEP is off in OpenIPC's config, FANCY_SLEEP only adds
+# suffixes), so `sleep 0.3` would be a fatal argument error rather than a
+# short nap -- use usleep, and fall back to a full second if even that is
+# missing so a blink degrades to slow rather than to a spin.
+led_nap_ms() {
+	if command -v usleep >/dev/null 2>&1; then
+		usleep $(( $1 * 1000 ))
+	else
+		sleep 1
+	fi
+}
+
+# ------------------------------------------------------------- ownership --
+#
+# While the camera needs setting up we own the LEDs; once it is on the
+# network we hand them back to whatever the board normally uses them for --
+# on the MJSXJ02HL that is S00autoled, showing whether majestic is running.
+# Taking them permanently would replace a useful indicator with a redundant
+# one, since a connected camera is reachable and can say more than a LED can.
+
+led_claim() {
+	[ -e "$WIFI_LED_CLAIMED" ] && return 0
+	if [ -n "$WIFI_LED_PAUSE_SERVICE" ] && [ -x "$WIFI_LED_PAUSE_SERVICE" ]; then
+		"$WIFI_LED_PAUSE_SERVICE" stop >/dev/null 2>&1
+		wifi_log "LED: paused $(basename "$WIFI_LED_PAUSE_SERVICE")"
+	fi
+	touch "$WIFI_LED_CLAIMED"
+}
+
+led_release() {
+	[ -e "$WIFI_LED_CLAIMED" ] || return 0
+	rm -f "$WIFI_LED_CLAIMED"
+	led_show 0 0
+	if [ -n "$WIFI_LED_PAUSE_SERVICE" ] && [ -x "$WIFI_LED_PAUSE_SERVICE" ]; then
+		"$WIFI_LED_PAUSE_SERVICE" start >/dev/null 2>&1
+		wifi_log "LED: released to $(basename "$WIFI_LED_PAUSE_SERVICE")"
+	fi
+}
+
+# --------------------------------------------------------------- patterns --
+#
+# Each renders ONE step and returns, so the loop can notice a state change
+# within a few hundred milliseconds instead of finishing a long animation.
+# $1 is the phase counter.
+
+pattern_step() {
+	_state=$1
+	_phase=$2
+	case "$_state" in
+		INIT)
+			# Solid amber: powered, not yet ready.
+			led_show 1 0; led_nap_ms 400 ;;
+		NO_HARDWARE)
+			# Urgent double-blink: this one never resolves on its own.
+			led_show 1 0; led_nap_ms 120
+			led_show 0 0; led_nap_ms 120
+			led_show 1 0; led_nap_ms 120
+			led_show 0 0; led_nap_ms 700 ;;
+		UNCONFIGURED|PROVISIONING)
+			# Alternating, deliberately unlike anything else the camera does:
+			# this is the one state that is waiting for a person.
+			if [ $(( _phase % 2 )) -eq 0 ]; then led_show 1 0; else led_show 0 1; fi
+			led_nap_ms 500 ;;
+		TESTING)
+			# Both lit, flickering: busy, do not power it off right now.
+			led_show 1 1; led_nap_ms 150
+			led_show 0 0; led_nap_ms 150 ;;
+		CONNECTING)
+			led_show 0 1; led_nap_ms 250
+			led_show 0 0; led_nap_ms 750 ;;
+		RECONNECTING)
+			led_show 1 0; led_nap_ms 250
+			led_show 0 0; led_nap_ms 750 ;;
+		*)
+			led_nap_ms 500 ;;
+	esac
+}
+
+# ------------------------------------------------------------------- loop --
+
+led_shutdown() {
+	led_release
+	rm -f "$WIFI_LED_PID"
+	exit 0
+}
+
+led_run() {
+	if [ -n "$WIFI_LED_HOOK" ]; then
+		led_run_hook
+		return
+	fi
+	if [ -z "$WIFI_LED_WARN_GPIO" ] && [ -z "$WIFI_LED_OK_GPIO" ]; then
+		exit 0
+	fi
+
+	led_export "$WIFI_LED_WARN_GPIO"
+	led_export "$WIFI_LED_OK_GPIO"
+
+	echo $$ > "$WIFI_LED_PID"
+	trap led_shutdown INT TERM
+
+	wifi_log "LED indicator active (warn=${WIFI_LED_WARN_GPIO:-none} ok=${WIFI_LED_OK_GPIO:-none})"
+
+	_phase=0
+	_last=
+	_connected_since=
+
+	while :; do
+		_state=$(wifi_state_get)
+
+		if [ "$_state" != "$_last" ]; then
+			_phase=0
+			_last=$_state
+			[ "$_state" = "CONNECTED" ] && _connected_since=$(date +%s)
+		fi
+
+		case "$_state" in
+			CONNECTED)
+				led_claim
+				# A short steady confirmation that the camera really did join,
+				# then hand the LEDs back. Without the pause the success is
+				# invisible: the state flips and the board's own indicator
+				# takes over in the same second.
+				if [ -n "$_connected_since" ] &&
+				   [ $(( $(date +%s) - _connected_since )) -lt 3 ]; then
+					led_show 0 1
+					led_nap_ms 500
+				else
+					led_release
+					sleep 1
+				fi
+				;;
+			*)
+				led_claim
+				pattern_step "$_state" "$_phase"
+				;;
+		esac
+
+		_phase=$(( _phase + 1 ))
+	done
+}
+
+# Escape hatch for boards whose LEDs are not plain GPIOs. Called once per
+# state change rather than continuously, so the hook owns its own animation.
+led_run_hook() {
+	echo $$ > "$WIFI_LED_PID"
+	trap 'rm -f "$WIFI_LED_PID"; exit 0' INT TERM
+	wifi_log "LED indicator delegating to $WIFI_LED_HOOK"
+	_last=
+	while :; do
+		_state=$(wifi_state_get)
+		if [ "$_state" != "$_last" ]; then
+			_last=$_state
+			"$WIFI_LED_HOOK" "$_state" >/dev/null 2>&1
+		fi
+		sleep 1
+	done
+}
+
+# Walk every pattern once so an integrator can confirm the wiring, the
+# polarity and which colour is which without provisioning a camera.
+led_test() {
+	if [ -z "$WIFI_LED_WARN_GPIO" ] && [ -z "$WIFI_LED_OK_GPIO" ]; then
+		echo "wifi-led: no LEDs configured. Set WIFI_LED_WARN_GPIO and/or" >&2
+		echo "          WIFI_LED_OK_GPIO in /etc/wifi/wifi.defaults." >&2
+		return 1
+	fi
+	led_export "$WIFI_LED_WARN_GPIO"
+	led_export "$WIFI_LED_OK_GPIO"
+	for _s in INIT NO_HARDWARE PROVISIONING TESTING CONNECTING RECONNECTING; do
+		echo "  $_s"
+		_i=0
+		while [ $_i -lt 6 ]; do
+			pattern_step "$_s" "$_i"
+			_i=$((_i + 1))
+		done
+	done
+	echo "  CONNECTED (steady, then released)"
+	led_show 0 1
+	sleep 2
+	led_show 0 0
+}
+
+case "${1:-run}" in
+	run)   led_run ;;
+	test)  led_test ;;
+	off)   led_show 0 0 ;;
+	*)     echo "Usage: $0 {run|test|off}" >&2; exit 1 ;;
+esac

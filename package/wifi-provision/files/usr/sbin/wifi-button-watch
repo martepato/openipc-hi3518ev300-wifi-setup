@@ -14,12 +14,12 @@
 # board-independent way to know which pin -- if any -- is a button rather
 # than an IR-cut driver or a sensor reset.
 
-LIB=/usr/libexec/wifi
+LIB=${WIFI_LIB_DIR:-/usr/libexec/wifi}
 . "$LIB/wifi-lib.sh"
 
 [ -n "$WIFI_BUTTON_GPIO" ] || exit 0
 
-GPIO_DIR=/sys/class/gpio/gpio$WIFI_BUTTON_GPIO
+GPIO_DIR=$WIFI_GPIO_SYSFS/gpio$WIFI_BUTTON_GPIO
 
 # Export the pin as an input if nobody has already. Another init script may
 # own it -- the Xiaomi MJSXJ02HL's S00resetbtn exports the same GPIO 0 at boot
@@ -27,7 +27,7 @@ GPIO_DIR=/sys/class/gpio/gpio$WIFI_BUTTON_GPIO
 # already there is success, not an error.
 gpio_setup() {
 	if [ ! -d "$GPIO_DIR" ]; then
-		echo "$WIFI_BUTTON_GPIO" > /sys/class/gpio/export 2>/dev/null
+		echo "$WIFI_BUTTON_GPIO" > "$WIFI_GPIO_SYSFS/export" 2>/dev/null
 		sleep 1
 	fi
 	[ -r "$GPIO_DIR/value" ] || return 1

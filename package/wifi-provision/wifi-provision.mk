@@ -68,6 +68,8 @@ define WIFI_PROVISION_INSTALL_TARGET_CMDS
 		$(TARGET_DIR)/usr/sbin/wifi-ctl
 	$(INSTALL) -m 0755 -D $(WIFI_PROVISION_PKGDIR)/files/usr/sbin/wifi-button-watch \
 		$(TARGET_DIR)/usr/sbin/wifi-button-watch
+	$(INSTALL) -m 0755 -D $(WIFI_PROVISION_PKGDIR)/files/usr/sbin/wifi-led \
+		$(TARGET_DIR)/usr/sbin/wifi-led
 
 	$(INSTALL) -m 0755 -D $(WIFI_PROVISION_PKGDIR)/files/etc/init.d/S41wifi \
 		$(TARGET_DIR)/etc/init.d/S41wifi

@@ -18,6 +18,10 @@ immediately:
 | `RECONNECTING` | Was connected, network went away. | §6 |
 | `CONNECTED` | Working. | — |
 
+If you cannot get a shell yet, the LEDs say which section you need — see the
+table in `docs/06-user-guide.md`. Orange double-blinking is §1/§2; alternating
+orange/blue means the camera is in setup mode and waiting, which is §4.
+
 ## 1. SDIO: the chip does not enumerate
 
 ```sh
@@ -211,6 +215,30 @@ df -h /overlay
 - **The file exists but is not loaded** → it is corrupt. The parser fails
   closed on purpose rather than half-loading. `wifi-ctl forget` and set it up
   again.
+
+## 8. The LEDs do nothing
+
+```sh
+wifi-ctl status | grep LEDs      # are any configured?
+wifi-ctl led-test                # walk every pattern
+```
+
+- **Nothing configured** → `WIFI_LED_WARN_GPIO` / `WIFI_LED_OK_GPIO` are
+  empty, which is the default for boards we do not know. See
+  `docs/10-device-mjsxj02hl.md` for a worked example.
+- **`led-test` lights nothing** → wrong GPIO numbers, or the pin is not
+  exported. Try by hand:
+
+  ```sh
+  echo 52 > /sys/class/gpio/export
+  echo out > /sys/class/gpio/gpio52/direction
+  echo 1 > /sys/class/gpio/gpio52/value
+  ```
+
+- **The LEDs are inverted** (lit when they should be dark) → set
+  `WIFI_LED_ACTIVE_LOW=1`.
+- **They flicker or fight** → another daemon owns them. Name it in
+  `WIFI_LED_PAUSE_SERVICE` so it is paused while we hold the LEDs.
 
 ## Collecting a report
 

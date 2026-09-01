@@ -166,6 +166,14 @@ if [ -n "$BOARD_PROFILE" ]; then
 		mv "$SDIO_DISPATCH.new" "$SDIO_DISPATCH"
 		chmod 755 "$SDIO_DISPATCH"
 	fi
+	# A board profile usually comes with board settings -- button and LED
+	# GPIOs -- which belong in wifi.defaults rather than the dispatcher.
+	PROFILE_DEFAULTS=$SELF/install/board-profiles/$BOARD_PROFILE.defaults
+	if [ -f "$PROFILE_DEFAULTS" ]; then
+		echo "==> installing $BOARD_PROFILE board settings as etc/wifi/wifi.defaults"
+		install -m 0644 -D "$PROFILE_DEFAULTS" \
+			"$PKG_DST/files/etc/wifi/wifi.defaults"
+	fi
 	echo "    set it on the camera with:  fw_setenv wlandev $PROFILE_TAG"
 fi
 

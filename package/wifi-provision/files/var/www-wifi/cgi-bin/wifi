@@ -18,7 +18,7 @@
 # It also never reveals a stored credential: there is no code path that reads
 # the key field out of the store and puts it in a response.
 
-LIB=/usr/libexec/wifi
+LIB=${WIFI_LIB_DIR:-/usr/libexec/wifi}
 . "$LIB/wifi-lib.sh"
 
 MAX_BODY=4096

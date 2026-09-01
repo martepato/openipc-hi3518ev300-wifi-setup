@@ -9,7 +9,7 @@
 # radio. That keeps one implementation of "connect to a network" rather than
 # a CLI copy that drifts from the web one.
 
-LIB=/usr/libexec/wifi
+LIB=${WIFI_LIB_DIR:-/usr/libexec/wifi}
 . "$LIB/wifi-lib.sh"
 . "$LIB/wifi-sta.sh"
 . "$LIB/wifi-ap.sh"
@@ -28,6 +28,7 @@ Usage: wifi-ctl <command> [arguments]
   forget                    Erase the saved Wi-Fi settings and start setup mode.
   reconnect                 Retry the saved network now.
   show                      Show the saved network name. Never prints the password.
+  led-test                  Walk every LED pattern once, to check the wiring.
 
 Passwords are read from the WIFI_PASSWORD environment variable when it is set,
 so they need not appear in the command line or the shell history:
@@ -61,6 +62,10 @@ cmd_status() {
 	echo "Address:    ${_ip:-none}"
 	if wifi_ap_running; then
 		echo "Setup AP:   $(wifi_ap_ssid) on $WIFI_AP_IP"
+	fi
+	if [ -n "$WIFI_LED_WARN_GPIO" ] || [ -n "$WIFI_LED_OK_GPIO" ] ||
+	   [ -n "$WIFI_LED_HOOK" ]; then
+		echo "LEDs:       warn=${WIFI_LED_WARN_GPIO:-none} ok=${WIFI_LED_OK_GPIO:-none}"
 	fi
 	_err=$(wifi_error_message)
 	[ -n "$_err" ] && echo "Last error: $_err"
@@ -173,6 +178,7 @@ case "${1:-}" in
 	forget|reset) cmd_forget ;;
 	reconnect) cmd_reconnect ;;
 	show)      cmd_show ;;
+	led-test)  exec /usr/sbin/wifi-led test ;;
 	-h|--help|help|'') usage ;;
 	*)         echo "wifi-ctl: unknown command '$1'" >&2; usage >&2; exit 1 ;;
 esac
