@@ -21,7 +21,7 @@ Phase 3 — Packaging & integration
 - [x] Buildroot package and OpenIPC installer (`install/install-into-openipc.sh`)
 - [x] SysV init integration (`S41wifi`), ordered before majestic
 - [x] Kconfig and package makefile validated against Buildroot 2024.02.10
-- [ ] Full cross-compile on a host with the OpenIPC toolchain available
+- [x] Cross-compile hostapd and wifi-dnsd with the OpenIPC toolchain (tools/build-image.sh)
 - [ ] CI: run `tests/run-tests.sh` and `shellcheck` on push
 
 Phase 4 — Captive portal & discovery
@@ -35,7 +35,8 @@ Phase 5 — Hardware validation
       (see the UNKNOWN section of `docs/02-hardware.md`)
 - [ ] Work through the hardware, provisioning, security and reliability
       matrices in `docs/09-testing.md`
-- [ ] Measure the real image-size delta and boot-time impact
+- [x] Measure the real image-size delta (+618,496 bytes squashfs; see docs/11)
+- [ ] Measure boot-time impact on hardware
 
 Phase 6 — Later
 - [ ] WPA3-SAE once a driver that supports it is confirmed

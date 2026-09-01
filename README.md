@@ -43,7 +43,29 @@ What has actually been verified is listed precisely in
 including what has **not** been: a full cross-compile and anything requiring
 the radio both need hardware this was not built on.
 
-## Install and build
+## Ready-to-flash image
+
+For a Xiaomi MJSXJ02HL, `tools/build-image.sh` produces a complete set for
+HiTool/HiBurn — bootloader, u-boot environment, kernel, root filesystem and
+the partition table:
+
+```sh
+./tools/build-image.sh          # writes ./output/release/
+```
+
+It layers onto OpenIPC's official release rather than rebuilding everything,
+because nothing here changes the kernel or the bootloader: both come out
+byte-identical to upstream (verified against the release's own `md5sum`
+file), so the only thing to review is the root filesystem. It cross-compiles
+`hostapd` and `wifi-dnsd` with the OpenIPC toolchain and adds the RTL8189FTV
+driver from OpenIPC's own `ultimate` build.
+
+It uses OpenIPC's 16 MB flash layout (`mtdpartsnor16m`) rather than the 8 MB
+one the MJSXJ02HL instructions use, because the root filesystem with
+provisioning is 5.4 MB and does not fit in a 5120K partition. The camera has
+16 MB. See [`docs/11-flashing-mjsxj02hl.md`](docs/11-flashing-mjsxj02hl.md).
+
+## Building from source with Buildroot
 
 ```sh
 git clone https://github.com/OpenIPC/firmware.git
@@ -123,6 +145,7 @@ diagnostic commands to settle it. Nothing about the chip has been invented.
 | [08-security.md](docs/08-security.md) | Injection, credential handling, and the open-AP trade-off |
 | [09-testing.md](docs/09-testing.md) | Hardware, provisioning, security and reliability test plan |
 | [10-device-mjsxj02hl.md](docs/10-device-mjsxj02hl.md) | Xiaomi MJSXJ02HL: confirmed hardware, bring-up profile, shared reset button |
+| [11-flashing-mjsxj02hl.md](docs/11-flashing-mjsxj02hl.md) | Building and flashing a ready-to-burn image with HiTool/HiBurn |
 
 ## Footprint
 
