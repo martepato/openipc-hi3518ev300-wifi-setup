@@ -17,14 +17,18 @@ set -eu
 SELF=$(cd "$(dirname "$0")/.." && pwd)
 DEST=${1:-}
 ENABLE_DEFCONFIG=${2:-}
+BOARD_PROFILE=${3:-}
 
 usage() {
 	cat <<'USAGE'
-Usage: install-into-openipc.sh <path-to-openipc-firmware> [defconfig-name]
+Usage: install-into-openipc.sh <path-to-openipc-firmware> [defconfig-name] [board-profile]
 
   <path-to-openipc-firmware>  A checkout of https://github.com/OpenIPC/firmware
   [defconfig-name]            Optional: also enable the package in this
                               board defconfig, e.g. hi3518ev300_lite
+  [board-profile]             Optional: also add a Wi-Fi bring-up profile to
+                              general/overlay/etc/wireless/sdio. Available:
+                                mjsxj02hl   Xiaomi MJSXJ02HL (RTL8189FTV)
 
 Without a defconfig name the package is installed but left unselected; turn
 it on with `make menuconfig` under "External options", or by adding
@@ -122,6 +126,47 @@ if [ -n "$ENABLE_DEFCONFIG" ]; then
         BR2_PACKAGE_ATBM_WIFI=y             # Altobeam ATBM603x, SDIO
         BR2_PACKAGE_AIC8800_OPENIPC=y       # AIC AIC8800, SDIO
 WARN
+fi
+
+# ------------------------------------------------------- 4. board profile --
+if [ -n "$BOARD_PROFILE" ]; then
+	PROFILE_SRC=$SELF/install/board-profiles/$BOARD_PROFILE.sh
+	SDIO_DISPATCH=$DEST/general/overlay/etc/wireless/sdio
+	if [ ! -f "$PROFILE_SRC" ]; then
+		echo "install: no board profile named '$BOARD_PROFILE'" >&2
+		echo "         available:" >&2
+		for p in "$SELF"/install/board-profiles/*.sh; do
+			[ -e "$p" ] || continue
+			b=${p##*/}
+			echo "           ${b%.sh}" >&2
+		done
+		exit 1
+	fi
+	[ -f "$SDIO_DISPATCH" ] || {
+		echo "install: $SDIO_DISPATCH not found" >&2
+		exit 1
+	}
+	# The dispatcher is a chain of `if [ "$1" = ... ]` blocks ending in
+	# `exit 1`. A new profile has to land BEFORE that final exit, so insert
+	# rather than append.
+	PROFILE_TAG=$(sed -n 's/^if \[ "\$1" = "\([^"]*\)" \]; then$/\1/p' "$PROFILE_SRC" | head -1)
+	if grep -qF "\"$PROFILE_TAG\"" "$SDIO_DISPATCH"; then
+		echo "==> board profile '$PROFILE_TAG' is already in etc/wireless/sdio"
+	else
+		echo "==> adding board profile '$PROFILE_TAG' to etc/wireless/sdio"
+		awk -v prof="$PROFILE_SRC" '
+			/^exit 1$/ && !done {
+				while ((getline line < prof) > 0) print line
+				close(prof)
+				print ""
+				done = 1
+			}
+			{ print }
+		' "$SDIO_DISPATCH" > "$SDIO_DISPATCH.new"
+		mv "$SDIO_DISPATCH.new" "$SDIO_DISPATCH"
+		chmod 755 "$SDIO_DISPATCH"
+	fi
+	echo "    set it on the camera with:  fw_setenv wlandev $PROFILE_TAG"
 fi
 
 cat <<'DONE'

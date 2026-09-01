@@ -158,13 +158,28 @@ change if wrong, and each is called out where it is set.
 
 ---
 
+## ANSWERED for one device: Xiaomi MJSXJ02HL
+
+If your camera is a **Xiaomi MJSXJ02HL**, every question in the next section
+is already settled — RTL8189FTV on SDIO, no power GPIO, reset button on
+GPIO 0 — from OpenIPC's own device repository. The bring-up profile ships
+with this project and the installer will add it:
+
+```sh
+./install/install-into-openipc.sh ../firmware hi3518ev300_lite mjsxj02hl
+```
+
+See **[docs/10-device-mjsxj02hl.md](10-device-mjsxj02hl.md)**. Note in
+particular that the stock `rtl8189fs-generic` profile does *not* work on that
+camera, and fails silently.
+
 ## UNKNOWN — what I need from you
 
-The provisioning system is complete and chip-independent. What is *not*
-determined is which radio your board has and how it is powered. That gap is
-deliberately confined to **one file and one environment variable**, so
-answering any of the questions below finishes the job without touching
-anything else.
+For any *other* board: the provisioning system is complete and
+chip-independent, but what is not determined is which radio your board has
+and how it is powered. That gap is deliberately confined to **one file and
+one environment variable**, so answering any of the questions below finishes
+the job without touching anything else.
 
 Please provide whichever of these you can:
 
@@ -279,6 +294,14 @@ sdio_rescan() {
 This is needed when the chip's power rail is switched by a GPIO that is off
 at boot: the MMC core scans once, finds nothing, and does not look again.
 Boards that keep the module powered permanently do not need it.
+
+A board may also expose a controller-level way to re-latch card presence,
+which is cheaper than cycling the driver binding. The Xiaomi MJSXJ02HL does
+exactly that — a toggle of bit 27 at `mmc1 + 0x28` — and its profile uses it
+instead of the unbind/bind dance. See
+[docs/10-device-mjsxj02hl.md](10-device-mjsxj02hl.md) for the annotated
+sequence; it is a good template for any Hi3518EV300 board whose SDIO pads
+need muxing before the radio will enumerate.
 
 > The `10020000.sdhci` device name is **ASSUMED** from the DTS `reg` property.
 > Confirm it with the `ls` above before relying on it.

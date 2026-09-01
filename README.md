@@ -66,15 +66,27 @@ fw_setenv wlandev rtl8189fs-generic
 
 Full instructions: [`docs/04-build.md`](docs/04-build.md).
 
-## You will need to supply one thing
+## Which Wi‑Fi chip does your board have?
 
-The provisioning system is chip-independent. What it cannot know is **which
-SDIO Wi‑Fi chip your board has and how it is powered**. That gap is confined
-to one file (`/etc/wireless/sdio`) and one variable (`wlandev`).
+The provisioning system is chip-independent; the one thing it cannot know is
+which SDIO radio is fitted and how it is powered. That gap is confined to one
+file (`/etc/wireless/sdio`) and one variable (`wlandev`).
 
-[`docs/02-hardware.md`](docs/02-hardware.md) separates what is **confirmed**
-from what is **assumed** and what is **unknown**, and gives the diagnostic
-commands to settle it. Nothing about the chip has been invented.
+**Xiaomi MJSXJ02HL is already solved** — RTL8189FTV on SDIO, no power GPIO,
+reset button on GPIO 0 — and its bring-up profile ships here:
+
+```sh
+./install/install-into-openipc.sh ../firmware hi3518ev300_lite mjsxj02hl
+fw_setenv wlandev rtl8189fs-hi3518ev300-mjsxj02hl     # on the camera
+```
+
+See [`docs/10-device-mjsxj02hl.md`](docs/10-device-mjsxj02hl.md). The stock
+`rtl8189fs-generic` profile does **not** work on that camera, and fails
+silently.
+
+For any other board, [`docs/02-hardware.md`](docs/02-hardware.md) separates
+what is **confirmed** from **assumed** and **unknown**, and gives the
+diagnostic commands to settle it. Nothing about the chip has been invented.
 
 ## How it behaves
 
@@ -107,6 +119,7 @@ commands to settle it. Nothing about the chip has been invented.
 | [07-troubleshooting.md](docs/07-troubleshooting.md) | SDIO, driver, hostapd, DHCP, portal |
 | [08-security.md](docs/08-security.md) | Injection, credential handling, and the open-AP trade-off |
 | [09-testing.md](docs/09-testing.md) | Hardware, provisioning, security and reliability test plan |
+| [10-device-mjsxj02hl.md](docs/10-device-mjsxj02hl.md) | Xiaomi MJSXJ02HL: confirmed hardware, bring-up profile, shared reset button |
 
 ## Footprint
 

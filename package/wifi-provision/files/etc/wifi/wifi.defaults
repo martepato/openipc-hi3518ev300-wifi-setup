@@ -95,10 +95,16 @@
 #WIFI_MIRROR_UBOOT_ENV=0
 
 # ----------------------------------------------------------------- button --
-# GPIO number of a setup button, in the numbering OpenIPC's `gpio` tool uses.
-# Empty (default) disables the watcher entirely. Holding the button for
-# WIFI_BUTTON_HOLD seconds erases the Wi-Fi settings and starts setup mode;
-# it touches nothing else on the camera.
+# GPIO number of a setup button, in the kernel's sysfs numbering (the number
+# N in /sys/class/gpio/gpioN). Empty (default) disables the watcher entirely.
+# Holding the button for WIFI_BUTTON_HOLD seconds erases the Wi-Fi settings
+# and starts setup mode; it touches nothing else on the camera.
+#
+# Sharing a pin with a factory-reset script is fine and is the normal case --
+# on the Xiaomi MJSXJ02HL, S00resetbtn reads this same GPIO 0 once at boot for
+# a full overlay wipe. The watcher waits for a release before arming, so a
+# hold at power-on is never counted twice.
+#   Xiaomi MJSXJ02HL:  WIFI_BUTTON_GPIO=0, WIFI_BUTTON_ACTIVE_LOW=1
 #WIFI_BUTTON_GPIO=
 #WIFI_BUTTON_HOLD=5
 #WIFI_BUTTON_ACTIVE_LOW=1

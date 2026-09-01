@@ -14,26 +14,28 @@ WIFI_DNSD_PID=$WIFI_RUN_DIR/dnsd.pid
 WIFI_HTTPD_CONF=$WIFI_RUN_DIR/httpd.conf
 WIFI_MAJESTIC_PREEMPTED=$WIFI_RUN_DIR/majestic.preempted
 
-# hostapd needs to be told which backend to drive. The Realtek out-of-tree
-# drivers (8189fs, 8189es, 8188fu...) expose Realtek's own interface, which is
-# why OpenIPC ships rtw-hostapd at all; everything mac80211-based takes
-# nl80211. Guessing from the bound driver's name beats asking the integrator
-# to know, and WIFI_AP_DRIVER overrides it when the guess is wrong.
+# hostapd needs to be told which backend to drive: nl80211 for anything that
+# registers a cfg80211 wiphy, or Realtek's own rtw interface for the
+# out-of-tree drivers built without CONFIG_IOCTL_CFG80211 (which is why
+# OpenIPC ships rtw-hostapd at all).
+#
+# Decided by asking the kernel, not by matching the driver's name. Whether a
+# Realtek driver speaks nl80211 is a build-time option, not a property of the
+# chip: OpenIPC's own 8189fs for the Xiaomi MJSXJ02HL is built with cfg80211
+# and its stock config drives wpa_supplicant with -D nl80211, so a name-based
+# guess of "8189 means rtw" is wrong on exactly the hardware this was written
+# for. The phy80211 link exists if and only if the driver registered a wiphy,
+# which is the same condition nl80211 needs.
 wifi_ap_driver() {
 	if [ "$WIFI_AP_DRIVER" != "auto" ]; then
 		printf '%s' "$WIFI_AP_DRIVER"
 		return
 	fi
-	_drv=$(readlink -f "/sys/class/net/$WIFI_IFACE/device/driver" 2>/dev/null)
-	_drv=${_drv##*/}
-	case "$_drv" in
-		*8189*|*8188*|*8192*|*8733*|*8821*|*8811*|*88x2*|*88XX*|rtl*|rtw*)
-			printf 'rtw' ;;
-		'')
-			printf 'nl80211' ;;
-		*)
-			printf 'nl80211' ;;
-	esac
+	if [ -e "/sys/class/net/$WIFI_IFACE/phy80211" ]; then
+		printf 'nl80211'
+	else
+		printf 'rtw'
+	fi
 }
 
 # The AP SSID is generated from [A-Za-z0-9-] only and the passphrase comes
