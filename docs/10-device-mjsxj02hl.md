@@ -109,10 +109,15 @@ Wi-Fi hardware at all. Now:
 | Orange blink, slow | Lost the network, retrying |
 | Steady blue ~3 s, then normal | Connected |
 
-After that the LEDs go back to `S00autoled` (orange = majestic stopped,
-blue = running), because a camera that is on the network can say more about
-itself than a LED can. `wifi-led` pauses `S00autoled` while it owns them and
-restarts it on the way out, so the two never fight over the same pins.
+After that `wifi-led` turns the LEDs off and stops driving them.
+
+On a stock OpenIPC install the camera's own `S00autoled` would take over here
+(orange = majestic stopped, blue = running), and `WIFI_LED_PAUSE_SERVICE`
+exists to pause it while setup mode owns the pins. But that daemon is part of
+the SD-card autoconfig payload, so an image built by `tools/build-image.sh`
+does not have it and the setting is left unset — there is nothing to hand back
+to. Dark LEDs on a working camera is the honest result. Point
+`WIFI_LED_PAUSE_SERVICE` at an LED daemon if your build ships one.
 
 Check the wiring without provisioning anything:
 
@@ -122,17 +127,28 @@ wifi-ctl led-test        # walks every pattern once
 
 ### The button is shared, deliberately
 
-`S00resetbtn` reads the same GPIO 0 **once at boot** and, if it is held then,
-wipes the whole overlay partition. `wifi-button-watch` polls it **during
-normal operation**. So one button gives two clearly separated actions:
+One button, two clearly separated actions:
 
-| When | Effect |
-|---|---|
-| Held **while powering on** | Full factory reset — wipes `/dev/mtd4` (`S00resetbtn`) |
-| Held **5 s while running** | Erases Wi-Fi settings only, reopens setup mode |
+| When | Effect | Provided by |
+|---|---|---|
+| Held **while powering on** | Full factory reset — erases the overlay partition | `S00resetbtn` |
+| Held **5 s while running** | Erases Wi-Fi settings only, reopens setup mode | `wifi-button-watch` |
 
-The watcher waits for the button to be released before arming, so a boot-time
-hold is never also counted as a Wi-Fi reset.
+`S00resetbtn` reads GPIO 0 once at boot; `wifi-button-watch` polls it during
+normal operation and waits for a release before arming, so a boot-time hold is
+never also counted as a Wi-Fi reset.
+
+**`S00resetbtn` ships in `boards/mjsxj02hl/rootfs/`, not in OpenIPC.** On a
+stock install it reaches the camera through the device's SD-card autoconfig
+payload, which a camera flashed from `tools/build-image.sh` never sees — so
+before it was added here, the factory reset this camera's documentation
+describes did nothing at all, while the runtime Wi-Fi reset worked fine. If
+you are integrating this into some other build, carry that file across or the
+button will look dead at boot.
+
+It also requires the button to stay held for two seconds rather than sampling
+the pin once, so a floating pin at power-on cannot erase the camera by
+itself.
 
 ## Majestic is on port 80, and that matters
 

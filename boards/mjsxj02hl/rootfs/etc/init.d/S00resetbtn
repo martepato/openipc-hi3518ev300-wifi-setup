@@ -1,0 +1,81 @@
+#!/bin/sh
+#
+# Factory reset for the Xiaomi MJSXJ02HL.
+#
+# Hold the Reset button while powering the camera on and the overlay
+# partition is erased: every setting reverts to what the firmware shipped
+# with, Wi-Fi credentials included.
+#
+# Adapted from OpenIPC/device-mjsxj02hl (MIT, Copyright (c) 2022 OpenIPC),
+# whose version of this script lives in the SD-card autoconfig payload rather
+# than in the firmware image. A camera flashed from tools/build-image.sh never
+# sees that payload, so without this the factory reset the camera's
+# documentation describes silently does nothing -- the button appears dead at
+# boot even though it works fine at runtime.
+#
+# Runs at S00, before anything else, because there is no point erasing the
+# overlay after other services have started writing to it.
+#
+# GPIO 0, active low (0 = pressed). The same pin wifi-button-watch polls
+# during normal operation for a Wi-Fi-only reset; the two do not collide
+# because this one only ever looks once, at boot, and that watcher waits for
+# the button to be released before it arms.
+
+BUTTON_GPIO=0
+# Seconds the button must stay held. The upstream script samples the pin once,
+# which makes a wipe possible from a momentary glitch on a pin that is floating
+# for a few milliseconds at power-on. Requiring the level to persist cannot
+# stop anyone who means it, and does stop the camera erasing itself because of
+# a transient.
+HOLD_SECONDS=2
+
+GPIO_DIR=/sys/class/gpio/gpio$BUTTON_GPIO
+
+pressed() {
+	[ -r "$GPIO_DIR/value" ] || return 1
+	[ "$(cat "$GPIO_DIR/value" 2>/dev/null)" = "0" ]
+}
+
+case "$1" in
+	start | restart | reload)
+		if [ ! -d "$GPIO_DIR" ]; then
+			echo "$BUTTON_GPIO" > /sys/class/gpio/export 2>/dev/null
+			sleep 1
+			[ -d "$GPIO_DIR" ] && echo in > "$GPIO_DIR/direction" 2>/dev/null
+		fi
+		if [ ! -r "$GPIO_DIR/value" ]; then
+			echo "Reset button: GPIO $BUTTON_GPIO is not readable, skipping"
+			exit 0
+		fi
+
+		printf 'Checking the reset button: '
+		if ! pressed; then
+			echo "not pressed"
+			exit 0
+		fi
+
+		held=0
+		while pressed && [ "$held" -lt "$HOLD_SECONDS" ]; do
+			sleep 1
+			held=$((held + 1))
+		done
+		if [ "$held" -lt "$HOLD_SECONDS" ]; then
+			echo "released after ${held}s, ignoring"
+			exit 0
+		fi
+
+		echo "HELD"
+		echo "Factory reset: erasing the overlay partition (rootfs_data)"
+		# -n wipes the overlay, -z stops sysupgrade trying to update itself
+		# over the network, which is not what a factory reset means and would
+		# hang here with no network yet.
+		/usr/sbin/sysupgrade -n -z
+		;;
+	stop)
+		exit 0
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart}"
+		exit 1
+		;;
+esac

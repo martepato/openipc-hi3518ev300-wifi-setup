@@ -4,6 +4,29 @@ Notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Factory reset did nothing.** Holding Reset while powering on is supposed
+  to erase the overlay, but `S00resetbtn` reaches a stock camera through the
+  device's SD-card autoconfig payload, which an image built by
+  `tools/build-image.sh` never sees. The button looked dead at boot while the
+  runtime Wi-Fi reset worked normally. It now ships in
+  `boards/mjsxj02hl/rootfs/`, and requires a two-second hold so a floating pin
+  at power-on cannot wipe the camera on its own.
+- `WIFI_LED_PAUSE_SERVICE` pointed at `/etc/init.d/S00autoled`, which is in
+  that same payload and so absent from these images. Harmless — the code
+  checks before calling it — but the documentation claimed the LEDs were
+  handed back to it, which was untrue. Now unset, and the docs say the LEDs
+  simply go off once connected.
+
+### Added
+
+- `boards/<name>/rootfs/` — board-specific files that are not part of the
+  provisioning package, installed by both `tools/build-image.sh` and
+  `tools/install-into-openipc.sh`.
+
 ## [1.0.0] — 2026-09-02
 
 First release that has run on hardware: built, flashed and provisioned end to

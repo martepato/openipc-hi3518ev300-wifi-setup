@@ -174,6 +174,22 @@ if [ -n "$BOARD_PROFILE" ]; then
 		install -m 0644 -D "$PROFILE_DEFAULTS" \
 			"$PKG_DST/files/etc/wifi/wifi.defaults"
 	fi
+	# Board files that are not part of the package itself (the factory-reset
+	# button handler here). They go into OpenIPC's rootfs overlay, since the
+	# Buildroot package cannot know which board it is being built for.
+	PROFILE_ROOTFS=$SELF/boards/$BOARD_PROFILE/rootfs
+	if [ -d "$PROFILE_ROOTFS" ]; then
+		echo "==> installing $BOARD_PROFILE board files into general/overlay"
+		( cd "$PROFILE_ROOTFS" && find . -type f ) | while read -r f; do
+			case "$f" in
+				./etc/init.d/*|./usr/sbin/*|./usr/bin/*|./bin/*|./sbin/*) m=0755 ;;
+				*) m=0644 ;;
+			esac
+			install -m "$m" -D "$PROFILE_ROOTFS/${f#./}" \
+				"$DEST/general/overlay/${f#./}"
+			echo "    ${f#./} ($m)"
+		done
+	fi
 	echo "    set it on the camera with:  fw_setenv wlandev $PROFILE_TAG"
 fi
 

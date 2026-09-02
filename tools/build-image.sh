@@ -208,6 +208,26 @@ done
     mv "$R/etc/network/interfaces.d/wlan0" "$R/etc/network/interfaces.d/wlan0.stock"
 install -m 644 "$P/etc/network/interfaces.d/wlan0" "$R/etc/network/interfaces.d/wlan0"
 
+# Board-specific files that are not part of the provisioning system itself --
+# on this camera, the factory-reset button handler. These live in the firmware
+# image on a stock OpenIPC install only because the device's SD-card
+# autoconfig payload puts them there, and a camera flashed from this builder
+# never sees that payload.
+if [ -d "$REPO/boards/mjsxj02hl/rootfs" ]; then
+    echo "    board rootfs overlay:"
+    ( cd "$REPO/boards/mjsxj02hl/rootfs" && find . -type f ) | while read -r f; do
+        src=$REPO/boards/mjsxj02hl/rootfs/${f#./}
+        dst=$R/${f#./}
+        # init scripts and anything under sbin/bin must stay executable.
+        case "$f" in
+            ./etc/init.d/*|./usr/sbin/*|./usr/bin/*|./bin/*|./sbin/*) m=0755 ;;
+            *) m=0644 ;;
+        esac
+        install -m "$m" -D "$src" "$dst"
+        echo "      ${f#./} ($m)"
+    done
+fi
+
 grep -q 'rtl8189fs-hi3518ev300-mjsxj02hl' "$R/etc/wireless/sdio" || {
     awk -v prof="$REPO/boards/mjsxj02hl/profile.sh" '
         /^exit 1$/ && !d { while ((getline l < prof) > 0) print l; close(prof); print ""; d=1 }
