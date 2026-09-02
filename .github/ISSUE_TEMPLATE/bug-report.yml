@@ -1,0 +1,40 @@
+name: Bug report
+description: Something behaves incorrectly on a supported board
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected instead
+    validations: {required: true}
+  - type: textarea
+    id: status
+    attributes:
+      label: wifi-ctl status
+      render: shell
+    validations: {required: true}
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: |
+        `logread | grep -i wifi | tail -60`
+
+        Skim it first: `wifi-ctl status` never prints a password and the
+        supplicant log carries no key material at default verbosity, but check
+        before posting publicly.
+      render: shell
+    validations: {required: true}
+  - type: input
+    id: version
+    attributes:
+      label: Firmware
+      description: "`cat /etc/os-release | grep GITHUB_VERSION`, plus this project's commit or tag"
+  - type: checkboxes
+    id: how
+    attributes:
+      label: How was it installed?
+      options:
+        - label: tools/build-image.sh (prebuilt OpenIPC base)
+        - label: tools/install-into-openipc.sh + a full Buildroot build
+        - label: Something else (say so above)

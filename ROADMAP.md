@@ -1,46 +1,46 @@
-Roadmap
-=======
+# Roadmap
 
-Phase 1 — Design & safety
-- [x] Specify goals and constraints for Hi3518EV300 provisioning
-- [x] Document the expected Wi‑Fi stack and tool dependencies
-- [x] Define security requirements and fail-safe behaviour
+## Done
 
-Phase 2 — Reference implementation
-- [x] Determine the real OpenIPC target, kernel, SDIO host and existing Wi‑Fi path
-      (`docs/02-hardware.md`)
-- [x] Provisioning state machine with test-before-commit (`usr/sbin/wifi-manager`)
-- [x] Persistent, atomic, hex-encoded credential store; PSK stored rather than
-      the passphrase
-- [x] Automatic reconnection, with a fallback policy that survives a router outage
-- [x] CLI for scanning, status and configuration (`wifi-ctl`)
-- [x] Minimal local-only web UI, bound to the provisioning interface
-- [x] Host-side test suite, including injection tests
+Provisioning works end to end on hardware — a Xiaomi MJSXJ02HL boots, brings up
+the setup AP, serves the portal, tests credentials and joins the network.
 
-Phase 3 — Packaging & integration
-- [x] Buildroot package and OpenIPC installer (`install/install-into-openipc.sh`)
-- [x] SysV init integration (`S41wifi`), ordered before majestic
-- [x] Kconfig and package makefile validated against Buildroot 2024.02.10
-- [x] Cross-compile hostapd and wifi-dnsd with the OpenIPC toolchain (tools/build-image.sh)
-- [ ] CI: run `tests/run-tests.sh` and `shellcheck` on push
+- Provisioning state machine with test-before-commit and a fallback policy that
+  survives a router outage
+- Setup AP, captive portal, wildcard DNS responder
+- Persistent, atomic, hex-encoded credential store holding a derived PSK
+- Automatic reconnection; adoption of credentials set through OpenIPC's own UI
+- `wifi-ctl`, optional reset button, LED status indication
+- Buildroot package, OpenIPC installer, flashable-image builder
+- Board support: Xiaomi MJSXJ02HL (RTL8189FTV / SDIO)
+- 119 host-side tests; CI running tests, shellcheck and the installer
 
-Phase 4 — Captive portal & discovery
-- [x] Captive-portal AP provisioning mode
-- [x] Wildcard DNS responder (`wifi-dnsd`) for portal auto-open
-- [ ] Confirm portal auto-open behaviour on current iOS, Android and Windows
-- [ ] mDNS announcement wired up by default (`openipc-xxxx.local`)
+## Next
 
-Phase 5 — Hardware validation
-- [ ] Confirm the SDIO chip and power/reset GPIO on a real board
-      (see the UNKNOWN section of `docs/02-hardware.md`)
-- [ ] Work through the hardware, provisioning, security and reliability
-      matrices in `docs/09-testing.md`
-- [x] Measure the real image-size delta (+618,496 bytes squashfs; see docs/11)
-- [ ] Measure boot-time impact on hardware
+**More boards.** The single most useful contribution — see
+[CONTRIBUTING.md](CONTRIBUTING.md). Every other Hi3518EV300 camera needs a
+profile, and the candidates OpenIPC already packages drivers for are ATBM603x,
+AIC8800, SSV6x5x and RTL8189ES.
 
-Phase 6 — Later
-- [ ] WPA3-SAE once a driver that supports it is confirmed
-- [ ] Concurrent AP+STA, if it proves stable on a given chip — it would remove
-      the setup network's brief disappearance during a connection test
-- [ ] WPA2-Enterprise (EAP) provisioning
-- [ ] QR / token-based setup for products that can print a label
+**Finish the reliability matrix** in [`docs/09-testing.md`](docs/09-testing.md).
+Untested so far, and worth doing properly:
+
+- power loss during a credential save, repeated (the whole justification for
+  the atomic-write design)
+- router unavailable for 30 minutes, then restored
+- 50 associate/disassociate cycles, checking for leaked processes
+- overlay filesystem full
+
+**Confirm captive-portal auto-open** on current iOS, Android and Windows, and
+record which of them actually pop the sign-in sheet.
+
+## Later
+
+- mDNS announcement wired up by default (`openipc-xxxx.local`)
+- WPA3-SAE, once a driver that supports it is confirmed on this class of radio
+- Concurrent AP+STA where a chip supports it reliably — it would remove the
+  brief disappearance of the setup network during a connection test
+- WPA2-Enterprise (EAP) provisioning
+- A per-device setup password with a printed label or QR code, which would let
+  the setup AP default to WPA2 instead of open — see
+  [`docs/08-security.md`](docs/08-security.md)

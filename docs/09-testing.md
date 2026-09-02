@@ -6,7 +6,7 @@
 sh tests/run-tests.sh
 ```
 
-83 checks, no hardware, runs under `dash` (closest common shell to busybox
+119 checks, no hardware, runs under `dash` (closest common shell to busybox
 ash). Covers hex encoding, input validation, credential storage and its
 failure modes, `wpa_supplicant.conf` generation, CGI form decoding, the
 command channel, candidate isolation, JSON encoding and scan-result parsing.

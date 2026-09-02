@@ -6,7 +6,7 @@
 # firmware checkout.
 #
 #   git clone https://github.com/OpenIPC/firmware.git
-#   ./install/install-into-openipc.sh ../firmware
+#   ./tools/install-into-openipc.sh ../firmware
 #   cd ../firmware && make BOARD=hi3518ev300_lite
 #
 # Idempotent: running it twice makes no further changes. Nothing outside the
@@ -130,15 +130,15 @@ fi
 
 # ------------------------------------------------------- 4. board profile --
 if [ -n "$BOARD_PROFILE" ]; then
-	PROFILE_SRC=$SELF/install/board-profiles/$BOARD_PROFILE.sh
+	PROFILE_SRC=$SELF/boards/$BOARD_PROFILE/profile.sh
 	SDIO_DISPATCH=$DEST/general/overlay/etc/wireless/sdio
 	if [ ! -f "$PROFILE_SRC" ]; then
 		echo "install: no board profile named '$BOARD_PROFILE'" >&2
 		echo "         available:" >&2
-		for p in "$SELF"/install/board-profiles/*.sh; do
+		for p in "$SELF"/boards/*/profile.sh; do
 			[ -e "$p" ] || continue
-			b=${p##*/}
-			echo "           ${b%.sh}" >&2
+			b=${p%/profile.sh}
+			echo "           ${b##*/}" >&2
 		done
 		exit 1
 	fi
@@ -168,7 +168,7 @@ if [ -n "$BOARD_PROFILE" ]; then
 	fi
 	# A board profile usually comes with board settings -- button and LED
 	# GPIOs -- which belong in wifi.defaults rather than the dispatcher.
-	PROFILE_DEFAULTS=$SELF/install/board-profiles/$BOARD_PROFILE.defaults
+	PROFILE_DEFAULTS=$SELF/boards/$BOARD_PROFILE/defaults
 	if [ -f "$PROFILE_DEFAULTS" ]; then
 		echo "==> installing $BOARD_PROFILE board settings as etc/wifi/wifi.defaults"
 		install -m 0644 -D "$PROFILE_DEFAULTS" \

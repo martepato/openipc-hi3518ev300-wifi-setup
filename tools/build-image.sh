@@ -59,9 +59,9 @@ fetch "$LIBNL_URL"     "$DL/libnl-3.9.0.tar.gz"
 
 say "Unpacking official images"
 for v in lite ultimate; do
-    rm -rf "$WORK/$v"; mkdir -p "$WORK/$v"
+    rm -rf "${WORK:?}/$v"; mkdir -p "$WORK/$v"
     tar xzf "$DL/openipc-nor-$v.tgz" -C "$WORK/$v"
-    rm -rf "$WORK/$v/rootfs"
+    rm -rf "${WORK:?}/$v/rootfs"
     unsquashfs -d "$WORK/$v/rootfs" -q "$WORK/$v/rootfs.squashfs.hi3518ev300" >/dev/null
 done
 # The official release ships its own md5sum; check it rather than trusting
@@ -70,7 +70,7 @@ done
     && echo "    kernel md5 verified against the release's own checksum" )
 
 say "Unpacking toolchain"
-rm -rf "$WORK/toolchain"; mkdir -p "$WORK/toolchain"
+rm -rf "${WORK:?}/toolchain"; mkdir -p "$WORK/toolchain"
 tar xzf "$DL/toolchain.tgz" -C "$WORK/toolchain"
 TCDIR=$(dirname "$(dirname "$(find "$WORK/toolchain" -name 'arm-openipc-linux-musleabi-gcc' | head -1)")")
 export PATH=$TCDIR/bin:$PATH
@@ -84,7 +84,7 @@ echo "    $($CROSS-gcc --version | head -1)"
 say "Cross-compiling libnl (link-time only)"
 STAGE=$WORK/stage-libnl
 if [ ! -e "$STAGE/lib/libnl-3.so" ]; then
-    rm -rf "$WORK/libnl-3.9.0"
+    rm -rf "${WORK:?}/libnl-3.9.0"
     tar xzf "$DL/libnl-3.9.0.tar.gz" -C "$WORK"
     ( cd "$WORK/libnl-3.9.0"
       ./configure --host=$CROSS --prefix="$STAGE" --disable-cli --disable-static \
@@ -119,7 +119,15 @@ CONFIG_ELOOP=eloop
 CFLAGS += -Os -I$STAGE/include/libnl3 -Wno-error -Wno-implicit-function-declaration
 LIBS += -L$STAGE/lib
 EOF
+    # That tree has .d dependency files committed to it, holding the
+    # original author's absolute paths (/home/finger/hostapd-2.9/...). Left
+    # in place, make tries to satisfy those paths and dies with
+    # "No rule to make target '/home/finger/.../includes.h'". Clear them
+    # before building; `make clean` alone is not enough because it too reads
+    # them.
+    find "$WORK/rtw-hostapd-src" -name '*.d' -delete
     ( cd "$HAPD"
+      make clean >/dev/null 2>&1 || true
       PKG_CONFIG_LIBDIR=$STAGE/lib/pkgconfig PKG_CONFIG_PATH=$STAGE/lib/pkgconfig \
         make -j"$(nproc)" CC=$CROSS-gcc >/dev/null
       $CROSS-strip hostapd hostapd_cli )
@@ -127,16 +135,38 @@ fi
 echo "    hostapd $(stat -c%s "$HAPD/hostapd") bytes; needs:" \
      "$($CROSS-readelf -d "$HAPD/hostapd" | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p' | tr '\n' ' ')"
 
+# Never package a host binary. An interrupted build can leave a tree that
+# relinks with the host compiler, and the result looks fine until the camera
+# refuses to exec it. Check the architecture, and check it needs nothing the
+# image does not already have.
+assert_target_binary() { # path, then the libraries the image provides
+    _f=$1; shift
+    case "$(LC_ALL=C file -b "$_f")" in
+        *"ELF 32-bit LSB"*ARM*) : ;;
+        *) echo "ABORT: $_f is not an ARM binary -- $(LC_ALL=C file -b "$_f")" >&2; exit 1 ;;
+    esac
+    for _lib in $($CROSS-readelf -d "$_f" | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p'); do
+        case " $* " in
+            *" $_lib "*) : ;;
+            *) echo "ABORT: $_f needs $_lib, which the OpenIPC image does not ship" >&2; exit 1 ;;
+        esac
+    done
+}
+assert_target_binary "$HAPD/hostapd"     libnl-3.so.200 libnl-genl-3.so.200 libc.so
+assert_target_binary "$HAPD/hostapd_cli" libc.so
+echo "    verified: ARM, and links only against libraries already in the image"
+
 # ----------------------------------------------------------- wifi-dnsd --
 say "Cross-compiling wifi-dnsd"
 $CROSS-gcc -Os -Wall -Wextra -Werror -o "$WORK/wifi-dnsd" "$REPO/package/wifi-provision/src/wifi-dnsd.c"
 $CROSS-strip "$WORK/wifi-dnsd"
-echo "    $(stat -c%s "$WORK/wifi-dnsd") bytes"
+assert_target_binary "$WORK/wifi-dnsd" libc.so
+echo "    $(stat -c%s "$WORK/wifi-dnsd") bytes, ARM"
 
 # ------------------------------------------------------------- rootfs ---
 say "Building root filesystem"
 R=$WORK/rootfs
-rm -rf "$R"; cp -a "$WORK/lite/rootfs" "$R"
+rm -rf "${R:?}"; cp -a "$WORK/lite/rootfs" "$R"
 P=$REPO/package/wifi-provision/files
 
 install -d -m 755 "$R/usr/libexec/wifi"
@@ -148,7 +178,7 @@ install -m 755 "$P/etc/init.d/S41wifi" "$R/etc/init.d/S41wifi"
 install -d -m 755 "$R/var/www-wifi/cgi-bin"
 install -m 644 "$P/var/www-wifi/index.html"   "$R/var/www-wifi/index.html"
 install -m 755 "$P/var/www-wifi/cgi-bin/wifi" "$R/var/www-wifi/cgi-bin/wifi"
-install -m 644 -D "$REPO/install/board-profiles/mjsxj02hl.defaults" "$R/etc/wifi/wifi.defaults"
+install -m 644 -D "$REPO/boards/mjsxj02hl/defaults" "$R/etc/wifi/wifi.defaults"
 install -m 755 "$WORK/wifi-dnsd"      "$R/usr/sbin/wifi-dnsd"
 install -m 755 "$HAPD/hostapd"        "$R/usr/sbin/hostapd"
 install -m 755 "$HAPD/hostapd_cli"    "$R/usr/bin/hostapd_cli"
@@ -179,7 +209,7 @@ done
 install -m 644 "$P/etc/network/interfaces.d/wlan0" "$R/etc/network/interfaces.d/wlan0"
 
 grep -q 'rtl8189fs-hi3518ev300-mjsxj02hl' "$R/etc/wireless/sdio" || {
-    awk -v prof="$REPO/install/board-profiles/mjsxj02hl.sh" '
+    awk -v prof="$REPO/boards/mjsxj02hl/profile.sh" '
         /^exit 1$/ && !d { while ((getline l < prof) > 0) print l; close(prof); print ""; d=1 }
         { print }' "$R/etc/wireless/sdio" > "$R/etc/wireless/sdio.new"
     mv "$R/etc/wireless/sdio.new" "$R/etc/wireless/sdio"
@@ -197,10 +227,15 @@ say "Building u-boot environment"
 # gzip payload inside the u-boot binary, so nothing is invented and nothing
 # unrelated is lost.
 python3 - "$DL/u-boot-hi3518ev300-universal.bin" "$REL/uboot-env.txt" <<'PY'
-import sys, re, gzip
+import sys, re, zlib
 raw = open(sys.argv[1],'rb').read()
 off = raw.find(b'\x1f\x8b\x08')
-blob = gzip.decompress(raw[off:])
+if off < 0:
+    sys.exit("no gzip payload found in the u-boot image")
+# Not gzip.decompress(): the compressed environment is followed by the rest
+# of the u-boot image, and gzip.decompress treats those trailing bytes as a
+# malformed second member and raises. zlib stops cleanly at end-of-stream.
+blob = zlib.decompressobj(16 + zlib.MAX_WBITS).decompress(raw[off:])
 i = blob.find(b'bootargs=mem=')
 win = blob[max(0,i-3000): i+6000]
 env, order = {}, []
@@ -262,6 +297,20 @@ for n,s,l,f in parts:
              f'Start="{s}K" Length="{l}K" SelectFile="{f}"/>')
 x.append('</Partition_Info>')
 open(f"{REL}/usb-burn.xml","w").write('\n'.join(x)+'\n')
+
+# A rootfs-only table for updating a camera that has already been flashed
+# once: the bootloader, environment and kernel do not change between builds
+# unless OpenIPC publishes a new release, so only this partition needs
+# rewriting and the overlay is left alone.
+r = [p for p in parts if p[0] == "rootfs"][0]
+y = ['<?xml version="1.0" encoding="GB2312" ?>', '<Partition_Info ProgrammerFile="">',
+     '<!-- Rootfs only. Use this when the camera has already been flashed with',
+     '     usb-burn.xml once. Compare md5sums.txt against the camera to check',
+     '     whether the other partitions really are unchanged. -->',
+     f'<Part Sel="1" PartitionName="rootfs" FlashType="spi" FileSystem="none" '
+     f'Start="{r[1]}K" Length="{r[2]}K" SelectFile="{r[3]}"/>',
+     '</Partition_Info>']
+open(f"{REL}/usb-burn-rootfs-only.xml","w").write('\n'.join(y)+'\n')
 PY
 cp "$REPO/docs/11-flashing-mjsxj02hl.md" "$REL/README-FLASHING.md" 2>/dev/null || true
 ( cd "$REL"

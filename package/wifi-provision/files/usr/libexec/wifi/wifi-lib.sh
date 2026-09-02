@@ -84,6 +84,7 @@ WIFI_GPIO_SYSFS=${WIFI_GPIO_SYSFS:-/sys/class/gpio}
 # files on a build host.
 WIFI_PROC=${WIFI_PROC:-/proc}
 
+# shellcheck source=/dev/null  # path is deliberately variable
 [ -r "$WIFI_DEFAULTS" ] && . "$WIFI_DEFAULTS"
 
 # ----------------------------------------------------------------- logging --

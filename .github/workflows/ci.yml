@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests and static checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dash and shellcheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq dash shellcheck
+
+      # dash, not bash: the target runs busybox ash, and bash hides
+      # portability bugs the camera would hit.
+      - name: Run the test suite under dash
+        run: dash tests/run-tests.sh
+
+      - name: shellcheck
+        run: |
+          # SC2034 is expected in wifi-lib.sh: it is a library whose variables
+          # are consumed by the scripts that source it.
+          shellcheck -s sh -S warning -e SC2034 \
+            package/wifi-provision/files/usr/libexec/wifi/*.sh \
+            package/wifi-provision/files/usr/sbin/wifi-manager \
+            package/wifi-provision/files/usr/sbin/wifi-ctl \
+            package/wifi-provision/files/usr/sbin/wifi-led \
+            package/wifi-provision/files/usr/sbin/wifi-button-watch \
+            package/wifi-provision/files/var/www-wifi/cgi-bin/wifi \
+            package/wifi-provision/files/etc/init.d/S41wifi \
+            boards/*/profile.sh
+          # Host-side tools declare their own shell (build-image.sh is bash),
+          # so let shellcheck read the shebang instead of forcing sh.
+          shellcheck -S warning -e SC2034 tools/*.sh
+
+      - name: Every shipped script parses as POSIX sh
+        run: |
+          rc=0
+          for f in package/wifi-provision/files/usr/libexec/wifi/*.sh \
+                   package/wifi-provision/files/usr/sbin/* \
+                   package/wifi-provision/files/var/www-wifi/cgi-bin/wifi \
+                   package/wifi-provision/files/etc/init.d/S41wifi \
+                   tools/*.sh tests/*.sh; do
+            dash -n "$f" || { echo "parse failed: $f"; rc=1; }
+          done
+          exit $rc
+
+  compile:
+    name: wifi-dnsd builds clean
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build with warnings as errors
+        run: gcc -O2 -Wall -Wextra -Werror -o /tmp/wifi-dnsd package/wifi-provision/src/wifi-dnsd.c
+      - name: Answer a DNS query
+        run: |
+          /tmp/wifi-dnsd -a 127.0.0.1 -p 15353 &
+          sleep 1
+          python3 - <<'PY'
+          import socket, struct, sys
+          q = b'\x07captive\x05apple\x03com\x00' + struct.pack('>HH', 1, 1)
+          pkt = struct.pack('>HHHHHH', 0x1234, 0x0100, 1, 0, 0, 0) + q
+          s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(3)
+          s.sendto(pkt, ('127.0.0.1', 15353))
+          d, _ = s.recvfrom(512)
+          qid, flags, qd, an, ns, ar = struct.unpack('>HHHHHH', d[:12])
+          assert an == 1, f'expected one answer, got {an}'
+          assert flags & 0xf == 0, 'expected NOERROR'
+          print('wildcard A answered, rcode 0')
+          PY
+
+  installer:
+    name: Installs into an OpenIPC checkout
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone OpenIPC firmware
+        run: git clone --depth 1 https://github.com/OpenIPC/firmware.git /tmp/firmware
+      - name: Install, and check the diff stays surgical
+        run: |
+          ./tools/install-into-openipc.sh /tmp/firmware hi3518ev300_lite mjsxj02hl
+          cd /tmp/firmware
+          # The package must add exactly one line to the shared Config.in.
+          added=$(git diff --numstat general/package/Config.in | awk '{print $1}')
+          echo "Config.in added lines: ${added:-0}"
+          [ "${added:-0}" = "1" ] || { git diff general/package/Config.in; exit 1; }
+          sh -n general/overlay/etc/wireless/sdio
+      - name: Running it twice changes nothing further
+        run: |
+          cd /tmp/firmware && git diff --stat > /tmp/before
+          cd - >/dev/null
+          ./tools/install-into-openipc.sh /tmp/firmware hi3518ev300_lite mjsxj02hl
+          cd /tmp/firmware && git diff --stat > /tmp/after
+          diff /tmp/before /tmp/after && echo "idempotent"

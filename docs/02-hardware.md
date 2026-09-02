@@ -166,7 +166,7 @@ GPIO 0 — from OpenIPC's own device repository. The bring-up profile ships
 with this project and the installer will add it:
 
 ```sh
-./install/install-into-openipc.sh ../firmware hi3518ev300_lite mjsxj02hl
+./tools/install-into-openipc.sh ../firmware hi3518ev300_lite mjsxj02hl
 ```
 
 See **[docs/10-device-mjsxj02hl.md](10-device-mjsxj02hl.md)**. Note in

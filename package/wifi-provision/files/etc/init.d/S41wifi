@@ -23,7 +23,7 @@ running() {
 }
 
 start() {
-	echo -n "Starting Wi-Fi manager: "
+	printf 'Starting Wi-Fi manager: '
 	if running; then
 		echo "OK (already running)"
 		return 0
@@ -45,7 +45,7 @@ start() {
 }
 
 stop() {
-	echo -n "Stopping Wi-Fi manager: "
+	printf 'Stopping Wi-Fi manager: '
 	start-stop-daemon -K -q -x /usr/sbin/wifi-button-watch 2>/dev/null
 	# SIGTERM makes wifi-led hand the LEDs back to the board's own daemon
 	# before it exits, so stopping us does not leave them stuck mid-blink.

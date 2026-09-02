@@ -1,6 +1,6 @@
 # Exactly what changes in an OpenIPC tree
 
-Run `./install/install-into-openipc.sh <firmware-checkout> hi3518ev300_lite`
+Run `./tools/install-into-openipc.sh <firmware-checkout> hi3518ev300_lite`
 and this is the complete set of changes. Nothing else in the tree is touched.
 
 ## Files added

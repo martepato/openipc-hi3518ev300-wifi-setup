@@ -203,7 +203,7 @@ releases; the squashfs is xz/128K with no xattrs, matching the stock image
 and the kernel's CONFIG_SQUASHFS_XZ / no-XATTR / XZ_DEC_ARM settings;
 env.bin is 64K with a correct CRC32 and parses back to 40 variables;
 every partition fits with room to spare and the table covers exactly 16 MB;
-96 automated tests of the provisioning logic pass.
+119 automated tests of the provisioning logic pass.
 
 NOT verified, because it needs the camera: that it boots, that the RTL8189FTV
 enumerates on SDIO, that hostapd can actually bring up an AP on this driver

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: OpenIPC firmware itself
+    url: https://github.com/OpenIPC/firmware/issues
+    about: Camera tuning, streaming, majestic, or anything not Wi-Fi provisioning.
+  - name: OpenIPC wiki
+    url: https://wiki.openipc.org
+    about: Flashing, recovery and general OpenIPC documentation.

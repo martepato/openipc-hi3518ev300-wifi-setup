@@ -16,7 +16,7 @@ git clone https://github.com/OpenIPC/firmware.git
 git clone https://github.com/martepato/openipc-hi3518ev300-wifi-setup.git
 
 cd openipc-hi3518ev300-wifi-setup
-./install/install-into-openipc.sh ../firmware hi3518ev300_lite
+./tools/install-into-openipc.sh ../firmware hi3518ev300_lite
 
 cd ../firmware
 # Enable the driver for YOUR radio -- see docs/02-hardware.md
@@ -72,7 +72,7 @@ checkout with Buildroot 2024.02.10:
 - `wifi-dnsd.c` compiles clean under `-Wall -Wextra -Werror`, and was
   **run and exercised** with real DNS queries — A, AAAA, MX, truncated
   headers, multi-question packets and compression pointers in the QNAME.
-- All 83 checks in `tests/run-tests.sh` pass under `dash`.
+- All 119 checks in `tests/run-tests.sh` pass under `dash`.
 
 **Not verified here**, and honestly out of reach in this environment:
 

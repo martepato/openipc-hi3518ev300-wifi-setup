@@ -31,7 +31,7 @@ condition nl80211 needs.
 
 ```sh
 cd openipc-hi3518ev300-wifi-setup
-./install/install-into-openipc.sh ../firmware hi3518ev300_lite mjsxj02hl
+./tools/install-into-openipc.sh ../firmware hi3518ev300_lite mjsxj02hl
 
 cd ../firmware
 echo 'BR2_PACKAGE_RTL8189FS_OPENIPC=y' >> \
@@ -81,7 +81,7 @@ fails silently: nothing errors, and `wlan0` simply never appears.
 ## Board settings
 
 The installer writes these for you from
-`install/board-profiles/mjsxj02hl.defaults`:
+`boards/mjsxj02hl/defaults`:
 
 ```sh
 WIFI_BUTTON_GPIO=0                            # reset button, sysfs numbering
