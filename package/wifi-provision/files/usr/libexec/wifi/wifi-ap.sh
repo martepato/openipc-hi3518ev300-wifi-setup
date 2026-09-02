@@ -144,8 +144,11 @@ wifi_ap_start() {
 	wifi_log "starting provisioning access point"
 	mkdir -p "$WIFI_RUN_DIR"
 
-	# Station side must be fully down: one radio, one role.
+	# Station side must be fully down: one radio, one role. That includes
+	# anything ifup started, which our pidfiles know nothing about --
+	# hostapd cannot bring up an AP while a supplicant holds the interface.
 	wifi_sta_stop 2>/dev/null
+	wifi_kill_stray_clients
 
 	wifi_ap_write_conf || { wifi_err "could not write hostapd config"; return 1; }
 	wifi_ap_write_dhcpd_conf

@@ -376,6 +376,56 @@ wifi_store_clear
 : > "$FW_ENV_FILE"
 
 # ---------------------------------------------------------------------------
+section "clearing stray radio clients"
+
+# Built against a fake /proc so the matching can be checked without killing
+# anything. kill is stubbed to record what would have been signalled.
+FP=$WORK/proc; rm -rf "$FP"; mkdir -p "$FP"
+mkproc() { # pid, then argv words
+    _p=$1; shift
+    mkdir -p "$FP/$_p"
+    : > "$FP/$_p/cmdline"
+    for w in "$@"; do printf '%s\0' "$w" >> "$FP/$_p/cmdline"; done
+}
+mkproc 101 wpa_supplicant -B -i wlan0 -D nl80211 -c /tmp/wpa_supplicant.conf
+mkproc 102 udhcpc -i wlan0 -b
+mkproc 103 wpa_supplicant -B -i wlan1 -c /tmp/other.conf   # different radio
+mkproc 104 majestic -s                                     # innocent bystander
+mkproc 105 /usr/sbin/hostapd -B /tmp/wifi/hostapd.conf     # our own AP
+mkproc 106 sh /usr/sbin/wifi-manager run                   # us
+mkproc 107 udhcpc -i eth0 -b                               # wired, not ours
+mkproc 200 wpa_supplicant -B -i wlan0 -c /tmp/ours.conf    # OUR pid
+
+KILLED=$WORK/killed; : > "$KILLED"
+kill() { for a in "$@"; do case "$a" in -*) ;; *) echo "$a" >> "$KILLED" ;; esac; done; }
+
+WIFI_PROC=$FP
+WIFI_IFACE=wlan0
+WIFI_WPA_PID=$WORK/run/wpa_supplicant.pid
+WIFI_DHCP_PID=$WORK/run/udhcpc.pid
+echo 200 > "$WIFI_WPA_PID"          # pretend 200 is ours
+: > "$WIFI_DHCP_PID"
+
+wifi_kill_stray_clients >/dev/null 2>&1
+got=$(sort -n "$KILLED" | tr '\n' ' ')
+is "kills only the strays on our interface" "$got" "101 102 "
+
+for pid in 103 104 105 106 107 200; do
+    if grep -qx "$pid" "$KILLED"; then bad "killed pid $pid, which it must not"; fi
+done
+ok "leaves the other radio, majestic, hostapd, the manager and eth0 alone"
+ok "never kills a pid recorded in our own pidfiles"
+
+# Nothing to do when the interface is already clear.
+: > "$KILLED"; rm -rf "$FP"; mkdir -p "$FP"; mkproc 104 majestic -s
+wifi_kill_stray_clients >/dev/null 2>&1
+is "no-op when nothing strays" "$(cat "$KILLED")" ""
+
+unset -f kill
+unset WIFI_PROC
+WIFI_IFACE=wlan0
+
+# ---------------------------------------------------------------------------
 section "interfaces.d/wlan0 guard"
 
 IFDIR=$WORK/etc/network/interfaces.d

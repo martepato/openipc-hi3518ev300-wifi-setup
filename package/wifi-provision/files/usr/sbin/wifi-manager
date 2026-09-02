@@ -352,8 +352,12 @@ wifi_main() {
 	wifi_env_mark_seen
 
 	# S40network runs before us and may have been handed a stanza that
-	# starts its own supplicant; make sure ours is the one on disk.
+	# starts its own supplicant -- on an upgrade it will have been, because
+	# setnetwork writes that file into the overlay, which a rootfs reflash
+	# leaves alone. Fix the file, and clear anything ifup already started
+	# from it: the file alone is too late for this boot.
 	wifi_wlan0_stanza_restore
+	wifi_kill_stray_clients
 
 	if ! wifi_store_exists; then
 		wifi_log "no Wi-Fi configuration, starting setup mode"

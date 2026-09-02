@@ -79,6 +79,11 @@ WIFI_LED_HOOK=
 # against a directory of ordinary files on a build host.
 WIFI_GPIO_SYSFS=${WIFI_GPIO_SYSFS:-/sys/class/gpio}
 
+# Root of procfs. Never changes on a real camera; a variable so the
+# stray-process sweep below can be exercised against a directory of ordinary
+# files on a build host.
+WIFI_PROC=${WIFI_PROC:-/proc}
+
 [ -r "$WIFI_DEFAULTS" ] && . "$WIFI_DEFAULTS"
 
 # ----------------------------------------------------------------- logging --
@@ -768,6 +773,49 @@ wifi_scan_age() {
 		''|*[!0-9]*) echo -1; return ;;
 	esac
 	echo $(( $(date +%s) - _then ))
+}
+
+# ------------------------------------------------- stray radio clients --
+#
+# S40network runs before us and calls `ifup wlan0`. If the stanza on disk is
+# the stock one -- which it will be on an upgrade, because setnetwork wrote
+# it into the writable overlay and a rootfs reflash does not clear that --
+# ifup has already started its own wpa_supplicant by the time we run. Two
+# supplicants on one radio is undefined at best; ours typically fails to
+# initialise the driver and the camera never associates.
+#
+# Fixing the file (wifi_wlan0_stanza_restore) is not enough on that boot,
+# because ifup has already acted on it. So sweep the interface clear before
+# taking it over.
+#
+# Targeted deliberately: matched on argv[0] AND on our interface appearing in
+# the arguments, and never touching a pid we started ourselves. A blanket
+# `killall wpa_supplicant` on a camera that may be running other radios is
+# how you take out the wrong process.
+wifi_kill_stray_clients() {
+	_mine=" $(cat "$WIFI_WPA_PID" 2>/dev/null) $(cat "$WIFI_DHCP_PID" 2>/dev/null) "
+	_found=0
+	for _entry in "$WIFI_PROC"/[0-9]*; do
+		[ -r "$_entry/cmdline" ] || continue
+		_pid=${_entry##*/}
+		case "$_mine" in
+			*" $_pid "*) continue ;;
+		esac
+		# argv[0] identifies the applet even when the binary is busybox.
+		_argv0=$(tr '\0' '\n' < "$_entry/cmdline" 2>/dev/null | head -1)
+		case "${_argv0##*/}" in
+			wpa_supplicant|udhcpc) : ;;
+			*) continue ;;
+		esac
+		# Only if it is on OUR interface.
+		tr '\0' ' ' < "$_entry/cmdline" 2>/dev/null |
+			grep -q -- "[ =]$WIFI_IFACE\( \|$\)" || continue
+		wifi_log "clearing a stray ${_argv0##*/} on $WIFI_IFACE (pid $_pid) started outside the manager"
+		kill "$_pid" 2>/dev/null
+		_found=1
+	done
+	[ "$_found" = "1" ] && sleep 1
+	return 0
 }
 
 # ------------------------------------------------------------ misc helpers --

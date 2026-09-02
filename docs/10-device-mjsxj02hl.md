@@ -173,6 +173,24 @@ Two consequences worth knowing:
   back into the boot path racing ours. The manager notices and puts its own
   stanza back.
 
+### Upgrading a camera whose network page has already been saved
+
+`/etc` is an overlay, and a rootfs-only reflash does not clear it. Once
+`setnetwork` has written the stock stanza to
+`/etc/network/interfaces.d/wlan0`, that copy lives on the overlay and
+**shadows** the one in the new firmware. `S40network` then runs `ifup wlan0`
+from it and starts a `wpa_supplicant` of its own — before `wifi-manager` gets
+a turn, so repairing the file is too late for that boot, and two supplicants
+on one radio means neither works.
+
+So the manager sweeps the interface clear before taking it: any
+`wpa_supplicant` or `udhcpc` whose arguments name our interface and which we
+did not start is stopped first. Matched on `argv[0]` plus the interface —
+never a blanket `killall`, and never a pid from our own pidfiles — so
+majestic, hostapd, a second radio and anything on `eth0` are untouched. The
+same sweep runs before `hostapd`, which likewise cannot bring up an AP while
+a supplicant holds the interface.
+
 The stanza also deliberately contains the word `dhcp` in a comment, because
 `fw-network.cgi` reports the addressing mode with
 

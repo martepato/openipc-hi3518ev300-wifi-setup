@@ -30,6 +30,9 @@ wifi_sta_running() {
 wifi_sta_start_supplicant() {
 	_conf=$1
 	wifi_sta_stop_supplicant
+	# ifup may have left one of its own on this interface; ours cannot
+	# initialise the driver alongside it.
+	wifi_kill_stray_clients
 	mkdir -p "$WIFI_CTRL_DIR" "$WIFI_RUN_DIR"
 	: > "$WIFI_WPA_LOG"
 	chmod 600 "$WIFI_WPA_LOG" 2>/dev/null
