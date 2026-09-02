@@ -6,89 +6,129 @@
 <title>Camera Wi-Fi Setup</title>
 <style>
 :root{color-scheme:light dark;--bg:#f4f5f7;--card:#fff;--fg:#16181d;--muted:#6b7280;
---line:#e3e5e9;--accent:#0b6bcb;--accent-fg:#fff;--bad:#b3261e;--good:#136c34}
+--line:#e3e5e9;--accent:#0b6bcb;--accent-fg:#fff;--bad:#b3261e;--good:#136c34;
+--bar-on:#4b5563;--bar-off:#d3d7de;--sel:rgba(11,107,203,.09)}
 @media(prefers-color-scheme:dark){:root{--bg:#15171b;--card:#1e2126;--fg:#eceef2;
---muted:#9aa1ac;--line:#2c3038;--accent:#4c9aff;--accent-fg:#06121f;--bad:#ff8a80;--good:#6ee7a0}}
+--muted:#9aa1ac;--line:#2c3038;--accent:#4c9aff;--accent-fg:#06121f;--bad:#ff8a80;
+--good:#6ee7a0;--bar-on:#c3c9d4;--bar-off:#3a3f48;--sel:rgba(76,154,255,.14)}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 -apple-system,
-BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:env(safe-area-inset-top) 0 0}
+BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
 .wrap{max-width:30rem;margin:0 auto;padding:1.25rem}
-h1{font-size:1.35rem;margin:.25rem 0 .25rem}
+h1{font-size:1.35rem;margin:.25rem 0}
 .sub{color:var(--muted);font-size:.9rem;margin:0 0 1.25rem}
 .card{background:var(--card);border:1px solid var(--line);border-radius:.85rem;
 padding:1rem;margin-bottom:1rem}
 label{display:block;font-weight:600;font-size:.88rem;margin:0 0 .35rem}
-input[type=text],input[type=password],select{width:100%;padding:.7rem .75rem;
-font-size:1rem;border:1px solid var(--line);border-radius:.55rem;background:var(--bg);
-color:var(--fg)}
+input[type=text],input[type=password]{width:100%;padding:.7rem .75rem;font-size:1rem;
+border:1px solid var(--line);border-radius:.55rem;background:var(--bg);color:var(--fg)}
 button{width:100%;padding:.8rem;font-size:1rem;font-weight:600;border:0;
 border-radius:.55rem;background:var(--accent);color:var(--accent-fg);cursor:pointer}
 button[disabled]{opacity:.55;cursor:default}
 button.ghost{background:transparent;color:var(--accent);border:1px solid var(--line);
-font-weight:500;padding:.55rem;font-size:.9rem}
+font-weight:500;padding:.5rem .8rem;font-size:.88rem;width:auto}
 .row{display:flex;gap:.5rem;align-items:center}
-.net{display:flex;align-items:center;gap:.6rem;padding:.7rem .25rem;
-border-bottom:1px solid var(--line);cursor:pointer}
-.net:last-child{border-bottom:0}
-.net.sel{background:rgba(11,107,203,.09);border-radius:.45rem}
-.net .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.net .meta{color:var(--muted);font-size:.78rem;white-space:nowrap}
-.bars{display:inline-block;width:1.4rem;letter-spacing:1px;color:var(--muted)}
+.between{display:flex;align-items:center;justify-content:space-between;gap:.5rem}
+
+/* Network list. The name is the flexible column and is allowed to shrink and
+   ellipsize; the signal and lock are fixed-width so they can never ride over
+   it, which the old inline block-character meter did. */
+.net{display:flex;align-items:center;gap:.75rem;width:100%;padding:.75rem .5rem;
+background:none;border:0;border-radius:.5rem;color:inherit;font:inherit;
+text-align:left;cursor:pointer}
+.net+.net{border-top:1px solid var(--line)}
+.net:hover,.net:focus-visible{background:var(--sel);outline:none}
+.net .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;
+white-space:nowrap}
+/* Sized here rather than under .net, so the same icons also render in the
+   chosen-network chip on the password screen. Scoping them to .net left that
+   SVG unsized and it collapsed. */
+.sig{flex:0 0 auto;width:20px;height:16px;display:block}
+.lock{flex:0 0 auto;width:12px;height:16px;color:var(--muted)}
+.net .chev{flex:0 0 auto;color:var(--muted);font-size:1.1rem;line-height:1}
+
 .hint{color:var(--muted);font-size:.82rem;margin:.5rem 0 0}
 .msg{padding:.75rem;border-radius:.55rem;font-size:.9rem;margin-bottom:1rem}
 .msg.err{background:rgba(179,38,30,.12);color:var(--bad)}
-.msg.ok{background:rgba(19,108,52,.12);color:var(--good)}
 .hide{display:none}
 .spin{width:1rem;height:1rem;border:2px solid var(--line);border-top-color:var(--accent);
 border-radius:50%;display:inline-block;animation:sp .8s linear infinite;vertical-align:-2px}
 @keyframes sp{to{transform:rotate(360deg)}}
 .center{text-align:center}
-code{background:var(--bg);padding:.1rem .3rem;border-radius:.25rem;font-size:.85em}
+.back{background:none;border:0;color:var(--accent);font:inherit;padding:0;
+cursor:pointer;width:auto;font-weight:500}
+.chosen{display:flex;align-items:center;gap:.6rem;padding:.7rem .75rem;
+background:var(--bg);border:1px solid var(--line);border-radius:.55rem;
+margin-bottom:1rem}
+.chosen .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;
+white-space:nowrap;font-weight:600}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>Camera Wi-Fi setup</h1>
-  <p class="sub" id="devname">Connect this camera to your Wi-Fi network.</p>
 
-  <div id="banner" class="msg hide"></div>
+  <!-- ===== step 1: choose a network ===== -->
+  <section id="step-pick">
+    <h1>Camera Wi-Fi setup</h1>
+    <p class="sub" id="devname">Choose the network the camera should join.</p>
+    <div id="banner" class="msg hide"></div>
 
-  <!-- step 1: pick a network -->
-  <div id="step-pick">
     <div class="card">
-      <div class="row" style="justify-content:space-between;margin-bottom:.4rem">
-        <label style="margin:0">Available networks</label>
-        <button class="ghost" style="width:auto;padding:.35rem .7rem" id="rescan">Rescan</button>
+      <div class="between" style="margin-bottom:.25rem">
+        <label style="margin:0">Nearby networks</label>
+        <button class="ghost" id="rescan">Rescan</button>
       </div>
       <div id="netlist"><p class="hint"><span class="spin"></span> Looking for networks…</p></div>
       <p class="hint" id="scanage"></p>
     </div>
 
+    <button class="ghost" id="manual-open" style="width:100%">Join a hidden network</button>
+    <p class="hint center" id="foot"></p>
+  </section>
+
+  <!-- ===== step 1b: hidden network name ===== -->
+  <section id="step-manual" class="hide">
+    <button class="back" id="manual-back">‹ Back</button>
+    <h1>Hidden network</h1>
+    <p class="sub">Type the exact name of the network. Capitals matter.</p>
     <div class="card">
-      <label for="manual">Or type a network name</label>
+      <label for="manual">Network name (SSID)</label>
       <input type="text" id="manual" autocomplete="off" autocapitalize="none"
-             spellcheck="false" placeholder="Network name (SSID)" maxlength="32">
-      <p class="hint">Use this for a hidden network that does not appear above.</p>
+             spellcheck="false" maxlength="32" placeholder="MyNetwork">
     </div>
-  </div>
+    <button id="manual-next" disabled>Next</button>
+  </section>
 
-  <!-- step 2: password -->
-  <div id="step-pass" class="card hide">
-    <label for="psk">Password for <span id="chosen"></span></label>
-    <input type="password" id="psk" autocomplete="off" autocapitalize="none"
-           spellcheck="false" placeholder="Wi-Fi password" maxlength="63">
-    <div class="row" style="margin-top:.6rem">
-      <input type="checkbox" id="show" style="width:auto">
-      <label for="show" style="margin:0;font-weight:400">Show password</label>
+  <!-- ===== step 2: password ===== -->
+  <section id="step-pass" class="hide">
+    <button class="back" id="pass-back">‹ Choose a different network</button>
+    <h1>Password</h1>
+    <p class="sub">Enter the password for this network.</p>
+    <div id="banner2" class="msg hide"></div>
+
+    <div class="chosen">
+      <span class="sig" id="chosen-sig"></span>
+      <span class="nm" id="chosen-name"></span>
+      <span class="hint" id="chosen-sec" style="margin:0"></span>
     </div>
-    <p class="hint" id="openhint"></p>
-  </div>
 
-  <button id="connect" disabled>Connect</button>
-  <p class="hint center" id="foot"></p>
+    <div class="card" id="pass-card">
+      <label for="psk">Wi-Fi password</label>
+      <input type="password" id="psk" autocomplete="off" autocapitalize="none"
+             spellcheck="false" maxlength="63" placeholder="Password">
+      <div class="row" style="margin-top:.6rem">
+        <input type="checkbox" id="show" style="width:auto">
+        <label for="show" style="margin:0;font-weight:400">Show password</label>
+      </div>
+      <p class="hint" id="pskhint">At least 8 characters.</p>
+    </div>
 
-  <!-- testing / result -->
-  <div id="step-test" class="hide">
+    <button id="connect">Connect</button>
+  </section>
+
+  <!-- ===== testing ===== -->
+  <section id="step-test" class="hide">
     <div class="card center">
       <p><span class="spin"></span></p>
       <p id="testmsg">Connecting…</p>
@@ -96,27 +136,34 @@ code{background:var(--bg);padding:.1rem .3rem;border-radius:.25rem;font-size:.85
       your Wi-Fi. If the password was wrong it comes back on its own in about
       a minute — just reconnect to it and try again.</p>
     </div>
-  </div>
+  </section>
 
-  <div id="step-done" class="hide">
+  <!-- ===== done ===== -->
+  <section id="step-done" class="hide">
     <div class="card center">
       <h1 style="margin-top:0">Connected</h1>
       <p id="donemsg"></p>
       <p class="hint">You can now reconnect your phone to your normal Wi-Fi network.</p>
     </div>
-  </div>
+  </section>
+
 </div>
 
 <script>
 "use strict";
 var API = "/cgi-bin/wifi";
-var chosen = null, chosenSec = "", hidden = false, polling = null;
+var chosen = null, chosenSec = "", chosenSignal = 0, hidden = false, polling = null;
 
 function $(id) { return document.getElementById(id); }
-
-// Every value from the device is inserted as a text node, never as HTML, so a
+// Values from the device are always inserted as text, never as HTML, so a
 // crafted SSID cannot become markup in the setup page.
 function text(el, s) { el.textContent = s == null ? "" : String(s); }
+function show(id) {
+  ["step-pick","step-manual","step-pass","step-test","step-done"].forEach(function (s) {
+    $(s).className = s === id ? "" : "hide";
+  });
+  window.scrollTo(0, 0);
+}
 
 function get(action, cb) {
   var x = new XMLHttpRequest();
@@ -142,16 +189,48 @@ function post(action, params, cb) {
   x.send(body);
 }
 
-function banner(kind, msg) {
-  var b = $("banner");
+function banner(which, kind, msg) {
+  var b = $(which);
   if (!msg) { b.className = "msg hide"; return; }
   b.className = "msg " + kind;
   text(b, msg);
 }
 
-function bars(dbm) {
+// Four bars of increasing height, drawn as SVG so they stay crisp, take a
+// fixed 20x16 box, and inherit theme colours. The old meter was block
+// characters in a 1.4rem span -- wider than its box, so it overlapped the
+// network name, and uniformly grey.
+function signalSvg(dbm) {
   var n = dbm >= -55 ? 4 : dbm >= -67 ? 3 : dbm >= -78 ? 2 : 1;
-  return "█".repeat(n) + "░".repeat(4 - n);
+  var ns = "http://www.w3.org/2000/svg";
+  var svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", "0 0 20 16");
+  svg.setAttribute("class", "sig");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "Signal " + n + " of 4");
+  for (var i = 0; i < 4; i++) {
+    var h = 4 + i * 4, r = document.createElementNS(ns, "rect");
+    r.setAttribute("x", i * 5); r.setAttribute("y", 16 - h);
+    r.setAttribute("width", 3); r.setAttribute("height", h);
+    r.setAttribute("rx", 1);
+    r.setAttribute("fill", i < n ? "var(--bar-on)" : "var(--bar-off)");
+    svg.appendChild(r);
+  }
+  return svg;
+}
+
+function lockSvg() {
+  var ns = "http://www.w3.org/2000/svg";
+  var svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", "0 0 12 16");
+  svg.setAttribute("class", "lock");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "Password protected");
+  var p = document.createElementNS(ns, "path");
+  p.setAttribute("d", "M3 7V5a3 3 0 0 1 6 0v2h.5A1.5 1.5 0 0 1 11 8.5v4A1.5 1.5 0 0 1 9.5 14h-7A1.5 1.5 0 0 1 1 12.5v-4A1.5 1.5 0 0 1 2.5 7H3zm1.5 0h3V5a1.5 1.5 0 0 0-3 0v2z");
+  p.setAttribute("fill", "currentColor");
+  svg.appendChild(p);
+  return svg;
 }
 
 function renderNets(list) {
@@ -165,65 +244,80 @@ function renderNets(list) {
     return;
   }
   list.forEach(function (n) {
-    var row = document.createElement("div");
+    var row = document.createElement("button");
+    row.type = "button";
     row.className = "net";
-    var b = document.createElement("span");
-    b.className = "bars";
-    text(b, bars(n.signal));
+    row.appendChild(signalSvg(n.signal));
     var nm = document.createElement("span");
     nm.className = "nm";
     text(nm, n.ssid);
-    var meta = document.createElement("span");
-    meta.className = "meta";
-    text(meta, n.security + (n.freq >= 5000 ? " · 5 GHz" : ""));
-    row.appendChild(b); row.appendChild(nm); row.appendChild(meta);
-    row.onclick = function () { pick(n.ssid, n.security, false, row); };
+    row.appendChild(nm);
+    if (n.security && n.security !== "Open") row.appendChild(lockSvg());
+    var ch = document.createElement("span");
+    ch.className = "chev";
+    text(ch, "›");
+    row.appendChild(ch);
+    row.onclick = function () { pick(n.ssid, n.security, n.signal, false); };
     box.appendChild(row);
   });
 }
 
-function pick(ssid, security, isHidden, row) {
-  chosen = ssid; chosenSec = security || "WPA2"; hidden = !!isHidden;
-  var rows = document.querySelectorAll(".net");
-  for (var i = 0; i < rows.length; i++) rows[i].className = "net";
-  if (row) row.className = "net sel";
-  if (!isHidden) $("manual").value = "";
-  text($("chosen"), ssid);
-  $("step-pass").className = "card";
+// Selecting a network moves to its own screen, so the password field is never
+// sitting next to a network-name field it does not belong to.
+function pick(ssid, security, signal, isHidden) {
+  chosen = ssid;
+  chosenSec = security || "WPA2";
+  chosenSignal = typeof signal === "number" ? signal : -60;
+  hidden = !!isHidden;
+
+  text($("chosen-name"), ssid);
+  var slot = $("chosen-sig");
+  slot.innerHTML = "";
+  if (!isHidden) slot.appendChild(signalSvg(chosenSignal));
+
   var open = chosenSec === "Open";
-  $("psk").disabled = open;
-  $("psk").value = open ? "" : $("psk").value;
-  text($("openhint"), open ? "This is an open network — no password needed." : "");
-  $("connect").disabled = false;
+  text($("chosen-sec"), isHidden ? "hidden" : chosenSec);
+  $("pass-card").className = open ? "card hide" : "card";
+  $("psk").value = "";
+  $("psk").type = "password";
+  $("show").checked = false;
+  text($("pskhint"), open ? "" : "At least 8 characters.");
+  text($("connect"), open ? "Connect (no password needed)" : "Connect");
+  banner("banner2", "", "");
+  show("step-pass");
+  if (!open) setTimeout(function () { $("psk").focus(); }, 50);
 }
 
-$("manual").oninput = function () {
-  var v = this.value.trim();
-  if (v) pick(v, "WPA2", true, null);
-  else { chosen = null; $("connect").disabled = true; $("step-pass").className = "card hide"; }
+$("manual-open").onclick = function () { $("manual").value = ""; $("manual-next").disabled = true; show("step-manual"); };
+$("manual-back").onclick = function () { show("step-pick"); };
+$("manual").oninput = function () { $("manual-next").disabled = !this.value.trim(); };
+$("manual").onkeydown = function (e) { if (e.key === "Enter" && this.value.trim()) $("manual-next").click(); };
+$("manual-next").onclick = function () {
+  var v = $("manual").value.trim();
+  if (v) pick(v, "WPA2", null, true);
 };
-
+$("pass-back").onclick = function () { show("step-pick"); };
 $("show").onchange = function () { $("psk").type = this.checked ? "text" : "password"; };
+$("psk").onkeydown = function (e) { if (e.key === "Enter") $("connect").click(); };
 
 $("rescan").onclick = function () {
   var b = this;
   b.disabled = true;
   text(b, "Scanning…");
-  banner("", "");
+  banner("banner", "", "");
   get("rescan", function () {
-    // The rescan drops the setup network for a few seconds; keep asking
-    // until it answers again.
+    // The rescan drops the setup network for a few seconds; keep asking until
+    // it answers again.
     var tries = 0;
     (function again() {
       setTimeout(function () {
         get("scan", function (r) {
           if (r && r.ok) {
-            renderNets(r.networks);
-            showAge(r.age);
-            b.disabled = false;
-            text(b, "Rescan");
+            renderNets(r.networks); showAge(r.age);
+            b.disabled = false; text(b, "Rescan");
           } else if (++tries < 20) again();
-          else { b.disabled = false; text(b, "Rescan"); banner("err", "Scan timed out. Please try again."); }
+          else { b.disabled = false; text(b, "Rescan");
+                 banner("banner", "err", "Scan timed out. Please try again."); }
         });
       }, 2000);
     })();
@@ -238,17 +332,17 @@ function showAge(age) {
 
 $("connect").onclick = function () {
   if (!chosen) return;
+  var open = chosenSec === "Open";
+  var pw = open ? "" : $("psk").value;
+  if (!open && pw.length < 8) {
+    banner("banner2", "err", "That password is too short — Wi-Fi passwords are at least 8 characters.");
+    return;
+  }
   this.disabled = true;
-  $("step-pick").className = "hide";
-  $("step-pass").className = "card hide";
-  $("connect").className = "hide";
-  $("step-test").className = "";
-  banner("", "");
-  post("connect", { ssid: chosen, psk: $("psk").disabled ? "" : $("psk").value,
-                    hidden: hidden ? "1" : "0" }, function (r) {
-    if (r && r.ok) { pollResult(); return; }
-    // A failed POST is usually the AP already going down for the test, which
-    // is expected — keep polling rather than reporting an error.
+  show("step-test");
+  post("connect", { ssid: chosen, psk: pw, hidden: hidden ? "1" : "0" }, function () {
+    // A failed POST is usually the AP going down for the test, which is
+    // expected — poll either way.
     pollResult();
   });
 };
@@ -259,13 +353,13 @@ function pollResult() {
     tries++;
     get("result", function (r) {
       if (!r || !r.ok) {
-        if (tries > 90) { clearInterval(polling); showFailed("The camera stopped responding. Reconnect to the setup network and try again."); }
+        if (tries > 90) { clearInterval(polling);
+          showFailed("The camera stopped responding. Reconnect to the setup network and try again."); }
         return;
       }
       if (r.status === "ok") {
         clearInterval(polling);
-        $("step-test").className = "hide";
-        $("step-done").className = "";
+        show("step-done");
         text($("donemsg"), r.ip ? ("The camera joined " + r.ssid + " and its address is " + r.ip + ".")
                                 : ("The camera joined " + r.ssid + "."));
       } else if (r.status === "failed") {
@@ -279,13 +373,13 @@ function pollResult() {
   }, 2000);
 }
 
+// Failure returns to the password screen with the network still selected, so
+// a mistyped password is one correction away rather than a restart.
 function showFailed(msg) {
-  $("step-test").className = "hide";
-  $("step-pick").className = "";
-  $("step-pass").className = "card";
-  $("connect").className = "";
   $("connect").disabled = false;
-  banner("err", msg);
+  show("step-pass");
+  banner("banner2", "err", msg);
+  $("psk").value = "";
   refresh();
 }
 
@@ -293,7 +387,7 @@ function refresh() {
   get("status", function (s) {
     if (s && s.ok) {
       if (s.ap_ssid) text($("devname"), "Setting up " + s.ap_ssid + ".");
-      if (s.error) banner("err", s.error);
+      if (s.error) banner("banner", "err", s.error);
       text($("foot"), s.configured && s.ssid ? "Currently saved network: " + s.ssid : "");
     }
   });

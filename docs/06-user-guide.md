@@ -21,8 +21,12 @@
    http://192.168.4.1/
    ```
 
-5. **Pick your home Wi-Fi** from the list, **type its password**, and press
-   **Connect**.
+5. **Tap your home Wi-Fi** in the list. A second screen asks for that
+   network's password — the name you picked is shown at the top, so you can
+   see what you are typing the password for. Press **Connect**.
+
+   For a network that does not broadcast its name, use **Join a hidden
+   network** below the list.
 6. The setup network disappears for up to a minute while the camera tries
    your Wi-Fi. This is normal.
    - **It worked:** the page shows "Connected" and the camera's new address.

@@ -31,7 +31,7 @@ wifi_ap_driver() {
 		printf '%s' "$WIFI_AP_DRIVER"
 		return
 	fi
-	if [ -e "/sys/class/net/$WIFI_IFACE/phy80211" ]; then
+	if [ -e "$WIFI_NET_SYSFS/$WIFI_IFACE/phy80211" ]; then
 		printf 'nl80211'
 	else
 		printf 'rtw'

@@ -376,6 +376,59 @@ wifi_store_clear
 : > "$FW_ENV_FILE"
 
 # ---------------------------------------------------------------------------
+section "setup SSID identity"
+
+# The suffix must be the LAST four hex digits of the MAC, so the name the
+# owner sees matches the address on the camera and in their router. This was
+# `tail -c 5 | head -c 4`, which returned digits 9-11 instead of 9-12: a
+# camera whose MAC ended EE:FF called itself OpenIPC-DEEF.
+NETFS=$WORK/netsys; mkdir -p "$NETFS/wlan0"
+WIFI_NET_SYSFS=$NETFS
+WIFI_IFACE=wlan0
+export WIFI_NET_SYSFS
+
+check_id() { # mac, expected suffix
+    echo "$1" > "$NETFS/wlan0/address"
+    is "MAC $1 -> $2" "$(wifi_device_id)" "$2"
+}
+check_id aa:bb:cc:dd:ee:ff EEFF
+check_id 00:11:22:33:44:55 4455
+check_id de:ad:be:ef:12:34 1234
+check_id A1:B2:C3:D4:E5:F6 E5F6
+# Lower case in sysfs, upper case in the SSID.
+check_id 0a:0b:0c:0d:0e:0f 0E0F
+
+echo "aa:bb:cc:dd:ee:ff" > "$NETFS/wlan0/address"
+is "AP SSID uses the suffix" "$(wifi_ap_ssid)" "OpenIPC-EEFF"
+is "hostname uses it lowercased" "$(wifi_hostname)" "openipc-eeff"
+
+# A prefix change must flow through to both.
+WIFI_AP_SSID_PREFIX=Camera
+WIFI_HOSTNAME_PREFIX=cam
+is "custom AP prefix"       "$(wifi_ap_ssid)" "Camera-EEFF"
+is "custom hostname prefix" "$(wifi_hostname)" "cam-eeff"
+WIFI_AP_SSID_PREFIX=OpenIPC
+WIFI_HOSTNAME_PREFIX=openipc
+
+# An all-zero MAC is not an identity; the helper must say so rather than
+# naming every such camera OpenIPC-0000 silently.
+echo "00:00:00:00:00:00" > "$NETFS/wlan0/address"
+no_ wifi_device_id
+
+# A short identity source still yields a four-character suffix.
+echo "7F" > "$NETFS/wlan0/address"
+is "short source is padded" "$(wifi_device_id)" "007F"
+
+# The name must be safe as an SSID: hex only, no separators.
+echo "aa:bb:cc:dd:ee:ff" > "$NETFS/wlan0/address"
+case "$(wifi_ap_ssid)" in
+    *[!A-Za-z0-9-]*) bad "AP SSID contains a character that needs quoting" ;;
+    *) ok "AP SSID is [A-Za-z0-9-] only, so it never needs quoting" ;;
+esac
+
+unset WIFI_NET_SYSFS
+
+# ---------------------------------------------------------------------------
 section "clearing stray radio clients"
 
 # Built against a fake /proc so the matching can be checked without killing

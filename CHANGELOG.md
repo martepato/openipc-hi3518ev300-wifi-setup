@@ -8,6 +8,20 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The setup SSID did not match the camera's MAC.** The suffix is meant to be
+  the last four hex digits so it matches what a router shows, but
+  `tail -c 5 | head -c 4` returned digits 9-11 rather than 9-12 — a camera
+  whose MAC ended `EE:FF` advertised `OpenIPC-DEEF`. Covered by tests across a
+  range of MACs, including short and all-zero identity sources.
+- **The signal meter overlapped the network name.** Four block characters in a
+  1.4rem box, wider than their container and flat grey. Replaced with a 20×16
+  SVG of four bars that fills by strength and follows the theme; secured
+  networks show a padlock, and long names ellipsize.
+- **The password field read as belonging to the SSID box.** The manual-SSID
+  input sat between the network list and the password field. The page is now
+  two steps — pick a network, then a screen of its own for the password —
+  with hidden networks on a separate screen entirely.
+
 - **Factory reset did nothing.** Holding Reset while powering on is supposed
   to erase the overlay, but `S00resetbtn` reaches a stock camera through the
   device's SD-card autoconfig payload, which an image built by
