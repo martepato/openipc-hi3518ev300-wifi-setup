@@ -288,6 +288,119 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+section "adopting credentials set outside the portal"
+
+# OpenIPC's own web UI writes wlanssid/wlanpass into the U-Boot environment
+# via setnetwork and then stops. These cover the watcher that picks that up.
+# fw_printenv/fw_setenv are stubbed with a file, since there is no flash here.
+mkdir -p "$WORK/bin"
+cat > "$WORK/bin/fw_printenv" <<'STUB'
+#!/bin/sh
+# -n NAME
+[ "$1" = "-n" ] || exit 1
+grep "^$2=" "$FW_ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2-
+STUB
+cat > "$WORK/bin/fw_setenv" <<'STUB'
+#!/bin/sh
+touch "$FW_ENV_FILE"
+sed -i "/^$1=/d" "$FW_ENV_FILE"
+[ -n "$2" ] && echo "$1=$2" >> "$FW_ENV_FILE"
+exit 0
+STUB
+chmod +x "$WORK/bin/fw_printenv" "$WORK/bin/fw_setenv"
+PATH=$WORK/bin:$PATH
+FW_ENV_FILE=$WORK/uboot-env
+export PATH FW_ENV_FILE
+: > "$FW_ENV_FILE"
+
+# Nothing set yet.
+no_ wifi_env_fingerprint
+no_ wifi_env_changed
+
+# The web UI saves an SSID and password.
+fw_setenv wlanssid 'HomeNet 2.4G'
+fw_setenv wlanpass 'correct horse battery'
+yes_ wifi_env_changed
+is "adopted ssid" "$WIFI_ENV_SSID" 'HomeNet 2.4G'
+is "adopted pass" "$WIFI_ENV_PASS" 'correct horse battery'
+
+# Marked seen -> must not fire again on the same values, or the manager
+# would retry a bad password every ten seconds forever.
+wifi_env_mark_seen
+no_ wifi_env_changed
+
+# Changing them again is a fresh event.
+fw_setenv wlanpass 'a different password'
+yes_ wifi_env_changed
+wifi_env_mark_seen
+
+# Values that cannot work are rejected once, and marked seen so they do not
+# re-log every cycle.
+fw_setenv wlanssid ''
+fw_setenv wlanpass 'short'
+no_ wifi_env_changed
+fw_setenv wlanssid 'Net'
+fw_setenv wlanpass 'short'
+no_ wifi_env_changed
+no_ wifi_env_changed
+
+# Credentials identical to what is already committed and verified are not
+# re-adopted.
+fw_setenv wlanssid 'AlreadySet'
+fw_setenv wlanpass 'goodpassword'
+rm -f "$WIFI_ENV_SEEN"
+wifi_store_save "$(printf '%s' 'AlreadySet' | wifi_hex_encode)" psk \
+    "$(printf '%s' '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef' | wifi_hex_encode)" 0 1
+no_ wifi_env_changed
+# ...but the same SSID that has NOT been verified still gets a try.
+wifi_store_save "$(printf '%s' 'AlreadySet' | wifi_hex_encode)" psk \
+    "$(printf '%s' '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef' | wifi_hex_encode)" 0 0
+rm -f "$WIFI_ENV_SEEN"
+yes_ wifi_env_changed
+
+# The fingerprint must not be the passphrase in the clear.
+fw_setenv wlanssid 'Net'; fw_setenv wlanpass 'SuperSecret123'
+fp=$(wifi_env_fingerprint)
+case "$fp" in
+    *SuperSecret123*) bad "fingerprint leaks the passphrase" ;;
+    *) ok "fingerprint does not contain the passphrase" ;;
+esac
+wifi_env_mark_seen
+if grep -q 'SuperSecret123' "$WIFI_ENV_SEEN" 2>/dev/null; then
+    bad "the seen-marker file contains the passphrase"
+else
+    ok "the seen-marker file contains no passphrase"
+fi
+
+wifi_store_clear
+: > "$FW_ENV_FILE"
+
+# ---------------------------------------------------------------------------
+section "interfaces.d/wlan0 guard"
+
+IFDIR=$WORK/etc/network/interfaces.d
+mkdir -p "$IFDIR"
+# The library writes to the real /etc path, so exercise the pieces that do
+# not: the generated stanza and the clobber detector's pattern.
+wifi_wlan0_stanza > "$IFDIR/wlan0"
+yes_ grep -q 'inet manual' "$IFDIR/wlan0"
+# fw-network.cgi reports the addressing mode with exactly this grep.
+yes_ grep -q dhcp "$IFDIR/wlan0"
+no_ grep -q 'wpa_supplicant' "$IFDIR/wlan0"
+
+# What setnetwork writes must be recognised as clobbered.
+printf 'iface wlan0 inet dhcp\n    pre-up wpa_supplicant -B -i wlan0 -c /tmp/x\n' > "$IFDIR/wlan0"
+yes_ grep -q 'wpa_supplicant' "$IFDIR/wlan0"
+
+# The packaged stanza and the one the guard writes must not drift apart.
+wifi_wlan0_stanza > "$WORK/generated-stanza"
+if diff -q "$WORK/generated-stanza" "$PKG/etc/network/interfaces.d/wlan0" >/dev/null 2>&1; then
+    ok "packaged wlan0 stanza matches wifi_wlan0_stanza()"
+else
+    bad "packaged wlan0 stanza has drifted from wifi_wlan0_stanza()"
+fi
+
+# ---------------------------------------------------------------------------
 section "LED indicator"
 
 # Driven against a directory of ordinary files standing in for sysfs, so the

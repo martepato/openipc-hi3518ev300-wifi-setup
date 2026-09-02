@@ -476,6 +476,124 @@ wifi_result_get() {
 	return 0
 }
 
+# ------------------------------------------- externally-set credentials --
+#
+# OpenIPC's own web UI already has a Wi-Fi page: it calls setnetwork, which
+# writes wlanssid/wlanpass into the U-Boot environment and rewrites
+# interfaces.d/wlan0 -- and then stops, because the stock design expects a
+# reboot to pick it up.
+#
+# Rather than duplicate that page or fight it, wifi-manager watches the
+# environment and adopts anything set there. Configuring Wi-Fi through the
+# camera's own interface then behaves exactly like configuring it through the
+# setup portal: the credentials are tested, committed on success, and the
+# setup AP is torn down. It is also the safety net for the case where the
+# portal cannot start at all -- the camera is still configurable, just
+# through a different page.
+#
+# The marker records what we last acted on, so a value we wrote ourselves
+# (WIFI_MIRROR_UBOOT_ENV) or one we already adopted does not re-trigger.
+
+WIFI_ENV_SEEN=$WIFI_RUN_DIR/env.seen
+
+# Echoes a stable fingerprint of the environment's credentials, or nothing
+# when none are set. The passphrase is hashed, never written out in the
+# clear -- this file lives in tmpfs but there is no reason for it to hold a
+# secret.
+wifi_env_fingerprint() {
+	command -v fw_printenv >/dev/null 2>&1 || return 1
+	_e_ssid=$(fw_printenv -n wlanssid 2>/dev/null)
+	[ -n "$_e_ssid" ] || return 1
+	_e_pass=$(fw_printenv -n wlanpass 2>/dev/null)
+	printf '%s\0%s' "$_e_ssid" "$_e_pass" | md5sum | cut -d' ' -f1
+}
+
+wifi_env_mark_seen() {
+	mkdir -p "$WIFI_RUN_DIR"
+	_fp=${1:-$(wifi_env_fingerprint)}
+	printf '%s\n' "$_fp" > "$WIFI_ENV_SEEN.tmp" 2>/dev/null &&
+		mv -f "$WIFI_ENV_SEEN.tmp" "$WIFI_ENV_SEEN"
+}
+
+# 0 when the environment holds credentials we have not acted on yet, with
+# WIFI_ENV_SSID / WIFI_ENV_PASS set to the raw values.
+wifi_env_changed() {
+	WIFI_ENV_SSID=
+	WIFI_ENV_PASS=
+	_fp=$(wifi_env_fingerprint) || return 1
+	_prev=
+	[ -r "$WIFI_ENV_SEEN" ] && _prev=$(cat "$WIFI_ENV_SEEN" 2>/dev/null)
+	[ "$_fp" = "$_prev" ] && return 1
+
+	_ssid=$(fw_printenv -n wlanssid 2>/dev/null)
+	_pass=$(fw_printenv -n wlanpass 2>/dev/null)
+	if ! wifi_validate_ssid_raw "$_ssid" || ! wifi_validate_key_raw "$_pass"; then
+		# Rejected once and marked seen, so a value we can never use does
+		# not make us re-check and re-log every ten seconds.
+		wifi_warn "ignoring invalid Wi-Fi settings from the U-Boot environment: $WIFI_VALIDATION_ERROR"
+		wifi_env_mark_seen "$_fp"
+		return 1
+	fi
+
+	# Already exactly what we have committed: nothing to do, just remember it.
+	if wifi_store_load; then
+		_cur_ssid=$(wifi_hex_decode "$WIFI_CFG_SSID")
+		if [ "$_cur_ssid" = "$_ssid" ] && [ "$WIFI_CFG_VERIFIED" = "1" ]; then
+			wifi_env_mark_seen "$_fp"
+			return 1
+		fi
+	fi
+
+	WIFI_ENV_SSID=$_ssid
+	WIFI_ENV_PASS=$_pass
+	return 0
+}
+
+# ------------------------------------------------- interfaces.d/wlan0 --
+#
+# setnetwork rewrites this file with the stock stanza every time someone
+# saves the web UI's network page, which would put a second wpa_supplicant
+# back in the boot path, racing ours. Re-assert ours whenever that happens.
+#
+# The stanza deliberately contains the word "dhcp" in a comment. fw-network.cgi
+# decides whether to show "Use DHCP" as on with
+#     grep -q dhcp /etc/network/interfaces.d/wlan0
+# and this interface really is DHCP -- wifi-manager runs udhcpc on it. Without
+# the word the page reports "static" for a camera that is using DHCP, which is
+# simply wrong information.
+
+wifi_wlan0_stanza() {
+	cat <<'STANZA'
+# Managed by wifi-provision.
+#
+# Addressing is dhcp, performed by wifi-manager rather than by ifupdown, so
+# that one process owns the supplicant, the DHCP client and hostapd on this
+# radio. (The word "dhcp" above is also what the web UI greps for to report
+# the addressing mode, and reporting dhcp here is accurate.)
+#
+# The stock stanza is kept alongside as wlan0.stock. To go back to it, move
+# it over this file and disable /etc/init.d/S41wifi.
+iface wlan0 inet manual
+    pre-up ip link set dev wlan0 up
+STANZA
+}
+
+# True when the file has been replaced by something that starts its own
+# supplicant -- i.e. setnetwork has been here.
+wifi_wlan0_stanza_clobbered() {
+	[ -r /etc/network/interfaces.d/wlan0 ] || return 0
+	grep -q 'wpa_supplicant' /etc/network/interfaces.d/wlan0 2>/dev/null
+}
+
+wifi_wlan0_stanza_restore() {
+	wifi_wlan0_stanza_clobbered || return 1
+	wifi_log "interfaces.d/wlan0 was rewritten (setnetwork); restoring ours"
+	_tmp=/etc/network/interfaces.d/wlan0.tmp.$$
+	wifi_wlan0_stanza > "$_tmp" 2>/dev/null || { rm -f "$_tmp"; return 1; }
+	mv -f "$_tmp" /etc/network/interfaces.d/wlan0
+	return 0
+}
+
 # ------------------------------------------------------------- PSK handling --
 
 # Derive the 256-bit PSK so the store never has to hold the plaintext

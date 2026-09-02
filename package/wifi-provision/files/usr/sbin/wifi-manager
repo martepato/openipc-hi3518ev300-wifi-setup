@@ -222,6 +222,42 @@ wifi_apply_hostname() {
 	return 0
 }
 
+# Adopt credentials somebody set outside the portal -- in practice, through
+# OpenIPC's own web UI, which writes them to the U-Boot environment and then
+# expects a reboot. Tested and committed exactly like a portal submission, so
+# a wrong password there is no more destructive than a wrong one here.
+#
+# Returns 0 if something was adopted (caller should re-evaluate its state).
+wifi_adopt_external() {
+	wifi_env_changed || return 1
+	wifi_log "Wi-Fi settings were changed outside the setup page; adopting them"
+
+	_fp=$(wifi_env_fingerprint)
+	_ssid_hex=$(printf '%s' "$WIFI_ENV_SSID" | wifi_hex_encode)
+	_type=open
+	_key=
+	if [ -n "$WIFI_ENV_PASS" ]; then
+		if [ "$WIFI_ENABLE_SAE" != "1" ] &&
+		   _psk=$(wifi_derive_psk "$WIFI_ENV_SSID" "$WIFI_ENV_PASS"); then
+			_type=psk
+			_key=$(printf '%s' "$_psk" | wifi_hex_encode)
+		else
+			_type=passphrase
+			_key=$(printf '%s' "$WIFI_ENV_PASS" | wifi_hex_encode)
+		fi
+	fi
+	unset WIFI_ENV_PASS _psk
+
+	# Mark seen before testing: if these credentials are wrong we must not
+	# retry them every ten seconds forever. The user changing them again
+	# produces a new fingerprint and a fresh attempt.
+	wifi_env_mark_seen "$_fp"
+
+	wifi_candidate_save "$_ssid_hex" "$_type" "$_key" 0
+	wifi_test_candidate
+	return 0
+}
+
 # ------------------------------------------------------ command dispatch --
 
 # Handle a queued portal/CLI request. Returns 0 if the caller's current loop
@@ -311,6 +347,14 @@ wifi_main() {
 	# One-time migration for a device already configured the stock way.
 	wifi_import_uboot_env
 
+	# Record what the environment holds right now, so the watcher below
+	# reacts to genuine changes rather than firing once on every boot.
+	wifi_env_mark_seen
+
+	# S40network runs before us and may have been handed a stanza that
+	# starts its own supplicant; make sure ours is the one on disk.
+	wifi_wlan0_stanza_restore
+
 	if ! wifi_store_exists; then
 		wifi_log "no Wi-Fi configuration, starting setup mode"
 		wifi_state_set UNCONFIGURED
@@ -333,6 +377,15 @@ wifi_main() {
 	WIFI_DISCONNECTED_SINCE=
 	while :; do
 		wifi_handle_command && continue
+
+		# Someone may have configured Wi-Fi through the camera's own web UI
+		# instead of the setup page, or replaced interfaces.d/wlan0 by
+		# saving that page. Both are normal; neither should need a reboot.
+		wifi_wlan0_stanza_restore
+		case "$(wifi_state_get)" in
+			PROVISIONING|CONNECTED|RECONNECTING|CONNECTING)
+				wifi_adopt_external && continue ;;
+		esac
 
 		case "$(wifi_state_get)" in
 			CONNECTED)

@@ -172,7 +172,17 @@ wifi_ap_start() {
 	fi
 
 	wifi_ap_stop_majestic
-	wifi_ap_start_portal
+	if ! wifi_ap_start_portal; then
+		# Without the portal the setup page is unreachable, so hand port 80
+		# back rather than leaving the camera with no web interface at all.
+		# OpenIPC's own network page writes wlanssid/wlanpass, which
+		# wifi-manager watches for -- so the camera stays configurable, just
+		# through a different page.
+		wifi_err "setup page unavailable; restoring the camera's own web UI so it stays configurable"
+		wifi_error_set portal_failed \
+			"The setup page could not start. Configure Wi-Fi from the camera's own web interface instead."
+		wifi_ap_restore_majestic
+	fi
 	wifi_ap_start_dns
 
 	wifi_log "setup network '$(wifi_ap_ssid)' is up on $WIFI_AP_IP"
@@ -186,11 +196,33 @@ wifi_ap_start_portal() {
 	if start-stop-daemon -S -b -m -p "$WIFI_HTTPD_PID" -x /usr/sbin/httpd -- \
 		-f -p "$WIFI_AP_IP:$WIFI_PORTAL_PORT" -h "$WIFI_PORTAL_ROOT" \
 		-c "$WIFI_HTTPD_CONF" >/dev/null 2>&1; then
-		wifi_log "setup page available at http://$WIFI_AP_IP/"
-		return 0
+		# start-stop-daemon returns 0 for "forked successfully", which says
+		# nothing about whether httpd could bind. Confirm the listener.
+		_i=0
+		while [ $_i -lt 5 ]; do
+			if wifi_ap_portal_listening; then
+				wifi_log "setup page available at http://$WIFI_AP_IP/"
+				return 0
+			fi
+			_i=$((_i + 1))
+			sleep 1
+		done
+		wifi_err "setup web server started but is not listening on $WIFI_AP_IP:$WIFI_PORTAL_PORT"
+		wifi_err "another process is probably holding that port -- check: netstat -ltnp | grep :$WIFI_PORTAL_PORT"
+		wifi_stop_pidfile "$WIFI_HTTPD_PID"
+		return 1
 	fi
-	wifi_err "setup web server failed to start"
+	wifi_err "setup web server failed to start (is /usr/sbin/httpd present?)"
 	return 1
+}
+
+# True when something is listening on the portal's address and port. Checked
+# in /proc/net/tcp rather than with netstat -p, which needs a bigger busybox
+# than some builds have. Matches both the specific address and 0.0.0.0.
+wifi_ap_portal_listening() {
+	_hexport=$(printf '%04X' "$WIFI_PORTAL_PORT")
+	awk -v p=":$_hexport" '$4 == "0A" && index($2, p) { found = 1 } END { exit !found }' \
+		/proc/net/tcp 2>/dev/null
 }
 
 wifi_ap_start_dns() {

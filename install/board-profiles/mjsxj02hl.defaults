@@ -24,6 +24,12 @@ WIFI_LED_ACTIVE_LOW=0
 # for a connected camera and misleading during setup.
 WIFI_LED_PAUSE_SERVICE=/etc/init.d/S00autoled
 
-# Majestic's web UI is on port 85 on this device, not 80, so it never
-# contends with the setup portal and never needs pausing.
-WIFI_PORTAL_STOP_MAJESTIC=0
+# Majestic serves its web UI on port 80 in OpenIPC's generic hi3518ev300
+# images (majestic.yaml: webPort 80), so it and the setup portal cannot both
+# hold that port. Pause it while the setup AP is up and restart it after.
+#
+# The OpenIPC device repo's own build moves majestic to 85, which is where an
+# earlier version of this file got 85 from -- wrong for the image actually
+# being flashed, and the reason the first test reached majestic's
+# root-password page instead of the setup page.
+WIFI_PORTAL_STOP_MAJESTIC=1

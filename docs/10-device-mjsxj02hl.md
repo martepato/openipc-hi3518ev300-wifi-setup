@@ -134,14 +134,55 @@ normal operation**. So one button gives two clearly separated actions:
 The watcher waits for the button to be released before arming, so a boot-time
 hold is never also counted as a Wi-Fi reset.
 
-## Port 85, not 80
+## Majestic is on port 80, and that matters
 
-Majestic's web UI is on **85** on this device, so it does not contend with the
-setup portal on port 80. `WIFI_PORTAL_STOP_MAJESTIC` can therefore be left at
-its default and will simply never trigger — the manager only pauses majestic
-if it actually finds it holding the portal's port. Nothing to configure; worth
-knowing when reading `docs/03-openipc-changes.md`, which describes the
-contention case that applies to other boards.
+An earlier version of this document said port 85, taken from the OpenIPC
+device repo's README. That is true of *that* build, whose autoconfig moves
+majestic — but **not** of the generic `hi3518ev300` images this project
+flashes, whose `majestic.yaml` says `webPort: 80`.
+
+Getting this wrong had a real consequence on the first hardware test: the
+board defaults shipped `WIFI_PORTAL_STOP_MAJESTIC=0`, nothing yielded port
+80, and `http://192.168.4.1/` served majestic's own web interface — a
+root-password prompt — instead of the setup page. It is now `1`, so majestic
+is paused for the duration of setup mode and restarted afterwards.
+
+If the portal still cannot take the port, `wifi-ap.sh` now restores majestic
+rather than leaving it stopped, so the camera is always configurable through
+one page or the other, and says so loudly in the log instead of failing
+quietly.
+
+## Configuring Wi-Fi from the camera's own web interface
+
+OpenIPC's web UI already has a Wi-Fi page. It calls `setnetwork`, which
+writes `wlanssid`/`wlanpass` into the U-Boot environment, rewrites
+`interfaces.d/wlan0` — and then stops, because the stock design expects a
+reboot to pick it up.
+
+`wifi-manager` watches that environment, so credentials set there are adopted
+within about ten seconds: tested, committed on success, and the setup AP torn
+down, exactly as if they had been typed into the setup page. A wrong password
+entered there is no more destructive than a wrong one here.
+
+Two consequences worth knowing:
+
+- **The setup AP stays up until the network is genuinely configured**, by
+  whichever page you used. It is not tied to the portal specifically.
+- **`setnetwork` overwrites `interfaces.d/wlan0`** with the stock stanza
+  every time that page is saved, which would put a second `wpa_supplicant`
+  back into the boot path racing ours. The manager notices and puts its own
+  stanza back.
+
+The stanza also deliberately contains the word `dhcp` in a comment, because
+`fw-network.cgi` reports the addressing mode with
+
+```sh
+grep -q dhcp /etc/network/interfaces.d/wlan0
+```
+
+and this interface really is DHCP — run by `wifi-manager` rather than by
+ifupdown. Without the word the page reported "static" for a camera using
+DHCP, which is what made the toggle look like it would not stay on.
 
 ## What this replaces
 

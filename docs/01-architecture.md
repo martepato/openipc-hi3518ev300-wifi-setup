@@ -174,6 +174,32 @@ device mounted under an eave, that is worse than being briefly offline.
 integrators who want it. Deliberate re-provisioning is always available: the
 button, `wifi-ctl provision`, or `wifi-ctl forget`.
 
+## 4b. Credentials set outside the portal
+
+The portal is not the only way Wi-Fi gets configured. OpenIPC's own web UI
+has a Wi-Fi page that calls `setnetwork`, which writes `wlanssid`/`wlanpass`
+into the U-Boot environment and rewrites `interfaces.d/wlan0`, then stops —
+the stock design expects a reboot.
+
+Rather than duplicate that page or fight it, the manager watches the
+environment (`wifi_env_changed`) and adopts anything set there, running it
+through the same test-then-commit path as a portal submission. So:
+
+- either page configures the camera, with no reboot;
+- the setup AP stays up until the network is *actually* configured, by
+  whichever route;
+- if the portal cannot start at all, the camera is still configurable — the
+  manager restores majestic's UI and picks up whatever is set there.
+
+A fingerprint of what was last acted on is kept in tmpfs so a value we wrote
+ourselves, or one already adopted, does not re-trigger — and so credentials
+that turn out to be wrong are tried once rather than every ten seconds. The
+fingerprint is a hash; the passphrase is never written to that file.
+
+Because `setnetwork` replaces the `wlan0` stanza with one that starts its own
+`wpa_supplicant`, the manager also re-asserts its own stanza when it sees
+that happen. Two supplicants on one radio is the race described in §1.
+
 ## 5. Test before commit — what is actually guaranteed
 
 The requirement is that a mistyped password must never leave the camera
