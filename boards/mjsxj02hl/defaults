@@ -1,0 +1,35 @@
+#
+# /etc/wifi/wifi.defaults -- Xiaomi MJSXJ02HL
+#
+# Values confirmed from https://github.com/OpenIPC/device-mjsxj02hl
+# See docs/10-device-mjsxj02hl.md.
+
+# The reset button. S00resetbtn reads this same pin once at boot for a full
+# overlay wipe; wifi-button-watch polls it during normal operation and waits
+# for a release before arming, so one press is never counted as both.
+#   held at power-on  -> factory reset (S00resetbtn)
+#   held 5s running   -> erase Wi-Fi settings only, reopen setup mode
+WIFI_BUTTON_GPIO=0
+WIFI_BUTTON_ACTIVE_LOW=1
+
+# Front LEDs: orange on GPIO 52, blue on GPIO 53, both active high. Lit
+# together they read as white, which is what led_control.sh calls the
+# sysupgrade colour and what the "busy" pattern uses here.
+WIFI_LED_WARN_GPIO=52
+WIFI_LED_OK_GPIO=53
+WIFI_LED_ACTIVE_LOW=0
+
+# Hand the LEDs back to the camera's own indicator once it is on the network.
+# S00autoled shows whether majestic is running, which is useful information
+# for a connected camera and misleading during setup.
+WIFI_LED_PAUSE_SERVICE=/etc/init.d/S00autoled
+
+# Majestic serves its web UI on port 80 in OpenIPC's generic hi3518ev300
+# images (majestic.yaml: webPort 80), so it and the setup portal cannot both
+# hold that port. Pause it while the setup AP is up and restart it after.
+#
+# The OpenIPC device repo's own build moves majestic to 85, which is where an
+# earlier version of this file got 85 from -- wrong for the image actually
+# being flashed, and the reason the first test reached majestic's
+# root-password page instead of the setup page.
+WIFI_PORTAL_STOP_MAJESTIC=1

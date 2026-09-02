@@ -1,0 +1,11 @@
+# Managed by wifi-provision.
+#
+# Addressing is dhcp, performed by wifi-manager rather than by ifupdown, so
+# that one process owns the supplicant, the DHCP client and hostapd on this
+# radio. (The word "dhcp" above is also what the web UI greps for to report
+# the addressing mode, and reporting dhcp here is accurate.)
+#
+# The stock stanza is kept alongside as wlan0.stock. To go back to it, move
+# it over this file and disable /etc/init.d/S41wifi.
+iface wlan0 inet manual
+    pre-up ip link set dev wlan0 up

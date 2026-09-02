@@ -1,14 +1,13 @@
-# Ignore Python artifacts
-__pycache__/
-*.pyc
-*.pyo
-.env
-dist/
-build/
+# Build output from tools/build-image.sh
+/output/
 
-# Editor temp files
+# Packaged images
+*.tgz
+*.squashfs
+*.bin
+!boards/**/*.bin
+
+# Editor and OS noise
 *~
 *.swp
-
-# OS
 .DS_Store

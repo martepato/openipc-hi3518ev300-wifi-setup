@@ -1,0 +1,50 @@
+#
+# Copyright (c) OpenIPC  https://openipc.org  MIT License
+#
+# Config.in -- Buildroot package Kconfig menu
+#
+
+config BR2_PACKAGE_WIFI_PROVISION
+	bool "wifi-provision"
+	depends on BR2_USE_MMU # fork()
+	select BR2_PACKAGE_WPA_SUPPLICANT
+	select BR2_PACKAGE_WPA_SUPPLICANT_CLI
+	select BR2_PACKAGE_WPA_SUPPLICANT_PASSPHRASE
+	select BR2_PACKAGE_RTW_HOSTAPD
+	select BR2_PACKAGE_RTW_HOSTAPD_DRIVER_NL80211
+	select BR2_PACKAGE_RTW_HOSTAPD_DRIVER_RTW
+	help
+	  User-friendly Wi-Fi setup for OpenIPC.
+
+	  A camera with no Wi-Fi configuration starts its own temporary
+	  access point (OpenIPC-XXXX) and serves a small setup page. The
+	  owner picks their network from a scan list, types the password,
+	  and the camera tests those credentials before saving them --
+	  a wrong password brings the setup network back rather than
+	  leaving the camera unreachable.
+
+	  Afterwards the camera joins the configured network on every boot
+	  and reconnects by itself. Requires a Wi-Fi adapter and a board
+	  profile in /etc/wireless.
+
+if BR2_PACKAGE_WIFI_PROVISION
+
+config BR2_PACKAGE_WIFI_PROVISION_CAPTIVE_DNS
+	bool "captive portal DNS responder"
+	default y
+	help
+	  Build wifi-dnsd, a ~15 KB wildcard DNS responder that makes a
+	  phone open the setup page automatically on joining the setup
+	  network. Without it the page is still reachable by typing
+	  http://192.168.4.1/ into a browser.
+
+config BR2_PACKAGE_WIFI_PROVISION_MDNS
+	bool "announce the camera over mDNS"
+	default n
+	select BR2_PACKAGE_MDNSD_OPENIPC
+	help
+	  Pull in mdnsd so the camera is reachable as openipc-xxxx.local
+	  once it has joined the network, instead of only by the address
+	  its router hands out. Costs roughly 45 KB of flash.
+
+endif

@@ -1,0 +1,96 @@
+#!/bin/sh
+#
+# Copyright (c) OpenIPC  https://openipc.org  MIT License
+#
+# wifi-button-watch -- optional physical setup button.
+#
+# Holding the button for WIFI_BUTTON_HOLD seconds erases the Wi-Fi settings
+# and starts setup mode. Scoped deliberately narrowly: it does not touch
+# majestic's configuration, the U-Boot environment, credentials for other
+# services, or anything else a "factory reset" might be expected to clear.
+# See docs/06-user-guide.md.
+#
+# Does nothing unless WIFI_BUTTON_GPIO names a pin, because there is no
+# board-independent way to know which pin -- if any -- is a button rather
+# than an IR-cut driver or a sensor reset.
+
+LIB=${WIFI_LIB_DIR:-/usr/libexec/wifi}
+. "$LIB/wifi-lib.sh"
+
+[ -n "$WIFI_BUTTON_GPIO" ] || exit 0
+
+GPIO_DIR=$WIFI_GPIO_SYSFS/gpio$WIFI_BUTTON_GPIO
+
+# Export the pin as an input if nobody has already. Another init script may
+# own it -- the Xiaomi MJSXJ02HL's S00resetbtn exports the same GPIO 0 at boot
+# to check for a factory reset -- so an export that fails because the pin is
+# already there is success, not an error.
+gpio_setup() {
+	if [ ! -d "$GPIO_DIR" ]; then
+		echo "$WIFI_BUTTON_GPIO" > "$WIFI_GPIO_SYSFS/export" 2>/dev/null
+		sleep 1
+	fi
+	[ -r "$GPIO_DIR/value" ] || return 1
+	# Only force the direction if it is not already an input, so we never
+	# fight a script that set it up first.
+	if [ -w "$GPIO_DIR/direction" ] &&
+	   [ "$(cat "$GPIO_DIR/direction" 2>/dev/null)" != "in" ]; then
+		echo in > "$GPIO_DIR/direction" 2>/dev/null
+	fi
+	return 0
+}
+
+# True while the button is physically pressed.
+#
+# Reads sysfs rather than OpenIPC's `gpio` tool: sysfs is what the device's
+# own reset-button script uses, it needs no extra binary, and the tool's pin
+# numbering is not guaranteed to match the kernel's. Falls back to the tool
+# when sysfs is unavailable.
+pressed() {
+	if [ -r "$GPIO_DIR/value" ]; then
+		_v=$(cat "$GPIO_DIR/value" 2>/dev/null | tr -cd '01')
+	elif command -v gpio >/dev/null 2>&1; then
+		_v=$(gpio read "$WIFI_BUTTON_GPIO" 2>/dev/null | tr -cd '01')
+	else
+		return 1
+	fi
+	[ -n "$_v" ] || return 1
+	if [ "$WIFI_BUTTON_ACTIVE_LOW" = "1" ]; then
+		[ "$_v" = "0" ]
+	else
+		[ "$_v" = "1" ]
+	fi
+}
+
+if ! gpio_setup && ! command -v gpio >/dev/null 2>&1; then
+	wifi_warn "button watcher: GPIO $WIFI_BUTTON_GPIO is not readable"
+	exit 0
+fi
+
+wifi_log "button watcher active on GPIO $WIFI_BUTTON_GPIO (hold ${WIFI_BUTTON_HOLD}s)"
+
+# A button already held when we start belongs to whatever ran before us -- on
+# the MJSXJ02HL, S00resetbtn reads the same pin at boot and a hold there means
+# a full overlay wipe. Wait for a release before arming, so one press is never
+# consumed by both.
+if pressed; then
+	wifi_log "button held at startup; waiting for release before arming"
+	while pressed; do sleep 1; done
+fi
+
+while :; do
+	if pressed; then
+		_held=0
+		while pressed && [ "$_held" -lt "$WIFI_BUTTON_HOLD" ]; do
+			sleep 1
+			_held=$((_held + 1))
+		done
+		if [ "$_held" -ge "$WIFI_BUTTON_HOLD" ]; then
+			wifi_log "setup button held for ${_held}s: erasing Wi-Fi settings"
+			wifi_cmd_post forget
+			# Wait for release so one long press is not read as several.
+			while pressed; do sleep 1; done
+		fi
+	fi
+	sleep 1
+done

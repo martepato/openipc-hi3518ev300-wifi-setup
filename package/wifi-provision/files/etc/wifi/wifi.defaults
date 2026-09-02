@@ -1,0 +1,153 @@
+#
+# Copyright (c) OpenIPC  https://openipc.org  MIT License
+#
+# /etc/wifi/wifi.defaults -- integrator settings for Wi-Fi provisioning.
+#
+# This file is sourced as a shell fragment by the provisioning scripts. It is
+# written by whoever builds or installs the firmware -- never by the web UI
+# and never from the network. User-supplied values live in
+# /etc/wifi/wifi.conf, which is hex-encoded data and is never sourced.
+#
+# Every setting below is shown at its default. Uncomment to change.
+
+# ---------------------------------------------------------------- interface --
+#WIFI_IFACE=wlan0
+
+# wpa_supplicant backends to try, in order. nl80211 covers anything
+# mac80211-based; wext covers the Realtek out-of-tree drivers (8189fs, 8189es,
+# 8188fu) that only register a wireless-extensions interface.
+#WIFI_STA_DRIVER=nl80211,wext
+
+# hostapd backend. "auto" picks rtw for a Realtek driver and nl80211 for
+# everything else. Set explicitly if the guess is wrong for your chip.
+#WIFI_AP_DRIVER=auto
+
+# ------------------------------------------------------- provisioning network --
+#WIFI_AP_SSID_PREFIX=OpenIPC        # SSID becomes <prefix>-<last 4 MAC digits>
+#WIFI_AP_IP=192.168.4.1
+#WIFI_AP_NETMASK=255.255.255.0
+#WIFI_AP_DHCP_START=192.168.4.100
+#WIFI_AP_DHCP_END=192.168.4.150
+#WIFI_AP_CHANNEL=6
+
+# Setup-network security. See docs/08-security.md for the full trade-off.
+#
+#   open  (default) -- anyone in radio range can join the setup network while
+#                      it is up, and could watch the home Wi-Fi password being
+#                      submitted. It is the default because it is the only
+#                      option that needs nothing printed on the device: a
+#                      camera whose setup password the owner cannot look up
+#                      is a camera that cannot be set up at all.
+#   wpa2            -- strongly preferred if your product can print a
+#                      per-device setup password on a label or QR code. Set
+#                      WIFI_AP_PASSPHRASE to that value (8-63 characters);
+#                      it is hashed into the hostapd config, never echoed.
+#
+#WIFI_AP_SECURITY=open
+#WIFI_AP_PASSPHRASE=
+
+# Seconds to keep the setup network up before retrying a *saved* network.
+# Ignored when nothing is saved: an unconfigured camera stays in setup mode
+# indefinitely, because the setup network is the only way to reach it.
+#WIFI_AP_IDLE_TIMEOUT=900
+
+# ------------------------------------------------------------------- portal --
+#WIFI_PORTAL_PORT=80
+#WIFI_PORTAL_ROOT=/var/www-wifi
+
+# Majestic also serves port 80 on every address, so the two cannot both hold
+# it. Setup mode is temporary and exclusive, so majestic is paused for its
+# duration and restarted afterwards. Set to 0 to leave majestic alone and run
+# the portal on a different WIFI_PORTAL_PORT instead.
+#WIFI_PORTAL_STOP_MAJESTIC=1
+
+# Wildcard DNS so a phone's captive-portal check redirects to the setup page.
+# Without it the page is still reachable by typing http://192.168.4.1/.
+#WIFI_CAPTIVE_DNS=1
+
+# ------------------------------------------------------------- connection --
+#WIFI_STA_ASSOC_TIMEOUT=25          # seconds to wait for association
+#WIFI_STA_DHCP_TIMEOUT=20           # seconds to wait for a DHCP lease
+#WIFI_CONNECT_ATTEMPTS=3            # tries per boot before giving up
+#WIFI_MONITOR_INTERVAL=10           # seconds between health checks
+
+# Seconds of continuous disconnection after which a camera whose credentials
+# have ALREADY worked once falls back to setup mode. 0 (default) means never.
+#
+# Leave this at 0 unless you have a specific reason. A router reboot, an ISP
+# outage or a power cut at the far end all look identical to wrong credentials
+# from the camera's side, and a camera that turns itself into an access point
+# every time the network blinks has to be re-provisioned by hand each time.
+# Credentials that have never worked always fall back, whatever this is set to.
+#WIFI_FALLBACK_AFTER=0
+
+# WPA3-Personal (SAE). Off by default: it needs both a driver that supports
+# it -- most SDIO camera radios do not -- and a wpa_supplicant built with
+# CONFIG_SAE. Turning it on also means the passphrase is stored instead of a
+# pre-hashed PSK, because SAE derives from the passphrase itself.
+#WIFI_ENABLE_SAE=0
+
+# ---------------------------------------------------------------- storage --
+# Mirror the SSID (and passphrase, when one is stored in plaintext) into the
+# U-Boot environment as wlanssid/wlanpass. Off by default: fw_setenv rewrites
+# a raw flash sector, and doing that on every credential change buys flash
+# wear and a small brick risk for a compatibility most builds do not need.
+#WIFI_MIRROR_UBOOT_ENV=0
+
+# ----------------------------------------------------------------- button --
+# GPIO number of a setup button, in the kernel's sysfs numbering (the number
+# N in /sys/class/gpio/gpioN). Empty (default) disables the watcher entirely.
+# Holding the button for WIFI_BUTTON_HOLD seconds erases the Wi-Fi settings
+# and starts setup mode; it touches nothing else on the camera.
+#
+# Sharing a pin with a factory-reset script is fine and is the normal case --
+# on the Xiaomi MJSXJ02HL, S00resetbtn reads this same GPIO 0 once at boot for
+# a full overlay wipe. The watcher waits for a release before arming, so a
+# hold at power-on is never counted twice.
+#   Xiaomi MJSXJ02HL:  WIFI_BUTTON_GPIO=0, WIFI_BUTTON_ACTIVE_LOW=1
+#WIFI_BUTTON_GPIO=
+#WIFI_BUTTON_HOLD=5
+#WIFI_BUTTON_ACTIVE_LOW=1
+
+# ------------------------------------------------------------------- LEDs --
+# Show the provisioning state on the camera's LEDs. Empty (default) disables
+# the indicator entirely -- there is no board-independent way to know which
+# GPIO is an LED rather than an IR-cut driver or a sensor reset.
+#
+# Named by role, not colour, so a board with different colours still makes
+# sense. Both lit at once is white on many cameras, which is what "busy" uses.
+#
+#   WARN  needs attention        OK  healthy / ready
+#
+# Numbers are the kernel's sysfs numbering (the N in /sys/class/gpio/gpioN).
+#   Xiaomi MJSXJ02HL:  WARN=52 (orange), OK=53 (blue), active high
+#
+#WIFI_LED_WARN_GPIO=
+#WIFI_LED_OK_GPIO=
+#WIFI_LED_ACTIVE_LOW=0
+
+# A board LED daemon to pause while we own the LEDs, and restart when the
+# camera is connected and we hand them back. On the MJSXJ02HL that is
+# S00autoled, which shows whether majestic is running -- a useful indicator
+# once the camera is on the network, and a misleading one during setup.
+#   Xiaomi MJSXJ02HL:  WIFI_LED_PAUSE_SERVICE=/etc/init.d/S00autoled
+#WIFI_LED_PAUSE_SERVICE=
+
+# For boards whose LEDs are not plain GPIOs (PWM, an i2c expander, a vendor
+# tool). Called with the state name as $1 on each change; it then owns the
+# display entirely and the GPIO settings above are ignored.
+#WIFI_LED_HOOK=
+
+# What the patterns mean:
+#   solid amber                booting
+#   amber double-blink         no Wi-Fi adapter found -- will not self-resolve
+#   alternating amber/blue     waiting to be set up: join OpenIPC-XXXX
+#   white flicker              testing your password, do not power off
+#   blue slow blink            joining the saved network
+#   amber slow blink           lost the network, retrying
+#   steady blue, then normal   connected
+#
+# Check the wiring without provisioning a camera:  wifi-led test
+
+# ---------------------------------------------------------------- hostname --
+#WIFI_HOSTNAME_PREFIX=openipc       # hostname becomes <prefix>-<4 hex digits>

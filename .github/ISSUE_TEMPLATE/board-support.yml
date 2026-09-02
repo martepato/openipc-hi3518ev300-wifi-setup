@@ -1,0 +1,46 @@
+name: Board support
+description: Wi-Fi does not come up on a camera that has no profile yet
+labels: ["board-support"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The provisioning system is chip-independent; what it cannot know is
+        which SDIO radio your board has and how it is powered. Everything
+        below comes from `docs/02-hardware.md`.
+  - type: input
+    id: camera
+    attributes:
+      label: Camera model / board marking
+      placeholder: Xiaomi MJSXJ02HL
+    validations: {required: true}
+  - type: textarea
+    id: sdio
+    attributes:
+      label: SDIO enumeration
+      description: |
+        ```sh
+        ls -l /sys/bus/sdio/devices/
+        for d in /sys/bus/sdio/devices/*/; do
+            echo "$d vendor=$(cat $d/vendor) device=$(cat $d/device)"
+        done
+        ```
+      render: shell
+    validations: {required: true}
+  - type: textarea
+    id: dmesg
+    attributes:
+      label: dmesg
+      description: "`dmesg | grep -iE 'mmc|sdio|sdhci|wlan'`"
+      render: shell
+    validations: {required: true}
+  - type: input
+    id: chip
+    attributes:
+      label: Chip marking on the module, if you can read it
+      placeholder: RTL8189FTV
+  - type: textarea
+    id: gpio
+    attributes:
+      label: Anything known about power/reset GPIOs
+      description: From a schematic, or the stock firmware's own init scripts.

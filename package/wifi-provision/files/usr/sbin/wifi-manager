@@ -1,0 +1,472 @@
+#!/bin/sh
+#
+# Copyright (c) OpenIPC  https://openipc.org  MIT License
+#
+# wifi-manager -- the Wi-Fi provisioning state machine.
+#
+# This is the only process that touches the radio. Everything else (the
+# portal CGI, wifi-ctl, the button watcher) asks it to act by posting a
+# command; see the command channel in wifi-lib.sh.
+#
+#   UNCONFIGURED --> PROVISIONING --> TESTING --> CONNECTED
+#                         ^              |            |
+#                         |              v            v
+#                         +---------- (failed)   RECONNECTING
+#                         |                           |
+#                         +------ (never verified) ---+
+#
+# The one policy decision worth reading twice is in wifi_should_fallback():
+# once a credential set has been proven to work, losing the network never
+# drops the camera back into access-point mode. A router that reboots, or an
+# ISP outage, must not turn a mounted camera into an open hotspot that the
+# owner then has to re-provision.
+
+LIB=${WIFI_LIB_DIR:-/usr/libexec/wifi}
+. "$LIB/wifi-lib.sh"
+. "$LIB/wifi-sta.sh"
+. "$LIB/wifi-ap.sh"
+. "$LIB/wifi-scan.sh"
+
+WIFI_MANAGER_PID=$WIFI_RUN_DIR/manager.pid
+
+# When the setup AP was last (re)started, and how long the current outage has
+# lasted. Both are read in the main loop before every path has set them.
+WIFI_AP_SINCE=
+WIFI_DISCONNECTED_SINCE=
+
+# ------------------------------------------------------ hardware bring-up --
+
+# Load the Wi-Fi driver through OpenIPC's own dispatcher. The board profile
+# named by the "wlandev" U-Boot variable owns everything chip specific --
+# power rails, reset GPIO, module name, module parameters -- so nothing in
+# the provisioning system needs to know which radio is fitted.
+wifi_ensure_interface() {
+	wifi_iface_exists && return 0
+
+	_dev=
+	command -v fw_printenv >/dev/null 2>&1 && _dev=$(fw_printenv -n wlandev 2>/dev/null)
+	if [ -z "$_dev" ]; then
+		wifi_err "no Wi-Fi hardware profile set: run 'fw_setenv wlandev <profile>'"
+		wifi_err "see /etc/wireless/sdio and /etc/wireless/usb for the available profiles"
+		return 1
+	fi
+
+	wifi_log "initializing Wi-Fi hardware (profile $_dev)"
+	if [ -x /etc/wireless/sdio ] && /etc/wireless/sdio "$_dev"; then
+		:
+	elif [ -x /etc/wireless/usb ] && /etc/wireless/usb "$_dev"; then
+		:
+	else
+		wifi_err "hardware profile '$_dev' is not known to /etc/wireless"
+		return 1
+	fi
+
+	# SDIO enumeration is asynchronous: the modprobe returns before the card
+	# has finished its CMD5/CMD3 sequence and registered a netdev.
+	_i=0
+	while [ $_i -lt 15 ]; do
+		wifi_iface_exists && break
+		_i=$((_i + 1))
+		sleep 1
+	done
+
+	if ! wifi_iface_exists; then
+		wifi_err "Wi-Fi driver loaded but $WIFI_IFACE never appeared"
+		wifi_err "check: dmesg | grep -i 'mmc\\|sdio'; ls /sys/bus/sdio/devices/"
+		return 1
+	fi
+
+	# An address from the U-Boot environment keeps the camera's DHCP
+	# reservation stable across driver reloads on chips that generate a
+	# random MAC at every probe.
+	if command -v fw_printenv >/dev/null 2>&1; then
+		_mac=$(fw_printenv -n wlanmac 2>/dev/null)
+		if [ -n "$_mac" ]; then
+			ip link set dev "$WIFI_IFACE" down 2>/dev/null
+			ip link set dev "$WIFI_IFACE" address "$_mac" 2>/dev/null
+		fi
+	fi
+	ip link set dev "$WIFI_IFACE" up 2>/dev/null
+	wifi_log "$WIFI_IFACE detected"
+	return 0
+}
+
+# ----------------------------------------------------------- transitions --
+
+wifi_enter_provisioning() {
+	wifi_state_set PROVISIONING
+
+	# Scan before the AP comes up: one radio cannot beacon and survey at the
+	# same time, so this cached list is what the portal shows. The Rescan
+	# button re-runs exactly this, at the cost of dropping the setup network
+	# for a few seconds.
+	wifi_scan_run
+
+	if ! wifi_ap_start; then
+		# Without an AP there is no way in over the air. Retry rather than
+		# give up: a driver that lost AP mode after a station teardown often
+		# recovers once the interface has been cycled.
+		wifi_warn "retrying access point after interface reset"
+		ip link set dev "$WIFI_IFACE" down 2>/dev/null
+		sleep 2
+		ip link set dev "$WIFI_IFACE" up 2>/dev/null
+		wifi_ap_start || return 1
+	fi
+	WIFI_AP_SINCE=$(date +%s)
+	return 0
+}
+
+# Try the stored credentials. Echoes nothing; returns the wifi_sta_connect
+# code.
+wifi_try_stored() {
+	wifi_store_load || return 1
+	wifi_state_set CONNECTING
+	_attempt=1
+	while [ "$_attempt" -le "$WIFI_CONNECT_ATTEMPTS" ]; do
+		wifi_log "connection attempt $_attempt of $WIFI_CONNECT_ATTEMPTS"
+		wifi_sta_connect
+		_rc=$?
+		[ $_rc -eq 0 ] && return 0
+		_attempt=$((_attempt + 1))
+		wifi_sta_stop
+		[ "$_attempt" -le "$WIFI_CONNECT_ATTEMPTS" ] && sleep 3
+	done
+	return $_rc
+}
+
+# Test a candidate submitted from the portal, then either commit it or put
+# the setup network back exactly as it was.
+#
+# A single radio cannot host the setup AP and associate with the home network
+# at the same time, so the AP genuinely does go down for the length of the
+# test. What matters -- and what this guarantees -- is that a failed test
+# costs the user nothing: the credentials are never written to /etc unless
+# they worked, and the setup network returns by itself within about a minute
+# carrying the reason it failed.
+wifi_test_candidate() {
+	wifi_candidate_load || {
+		wifi_result_set failed internal "Setup data was lost. Please try again." "" ""
+		return 1
+	}
+	_ssid_hex=$WIFI_CFG_SSID
+	wifi_result_set testing "" "Connecting to your Wi-Fi network..." "" "$_ssid_hex"
+	wifi_state_set TESTING
+	wifi_log "testing submitted credentials"
+
+	wifi_ap_stop
+	sleep 1
+
+	# WIFI_CFG_* is still the candidate, which is what
+	# wifi_write_supplicant_conf consumes.
+	wifi_sta_connect
+	_rc=$?
+
+	if [ $_rc -eq 0 ]; then
+		_ip=$(wifi_iface_ipv4)
+		if wifi_candidate_commit; then
+			wifi_error_clear
+			wifi_result_set ok "" "Connected." "$_ip" "$_ssid_hex"
+			wifi_state_set CONNECTED
+			wifi_apply_hostname
+			wifi_log "provisioning complete, address ${_ip:-unknown}"
+			return 0
+		fi
+		# The radio works but the credentials could not be persisted. Say so
+		# plainly rather than reporting success and losing them at reboot.
+		wifi_err "could not write credentials to $WIFI_CONF"
+		wifi_result_set failed storage \
+			"Connected, but the settings could not be saved. The storage may be full or read-only." \
+			"$_ip" "$_ssid_hex"
+		return 1
+	fi
+
+	case $_rc in
+		2) _code=dhcp
+		   _msg="Joined the network but it did not hand out an address. Check that the router's DHCP server is on." ;;
+		*) _diag=$(wifi_sta_diagnose)
+		   _code=${_diag%%|*}
+		   _msg=${_diag#*|} ;;
+	esac
+	wifi_log "candidate rejected: $_code"
+	wifi_candidate_clear
+	wifi_sta_stop
+	wifi_result_set failed "$_code" "$_msg" "" "$_ssid_hex"
+	wifi_error_set "$_code" "$_msg"
+	wifi_enter_provisioning
+	return 1
+}
+
+# Whether a device that cannot reach its network should reopen the setup AP.
+#
+#  - Credentials that have never worked: yes. They are probably wrong, and
+#    the AP is the only way for the owner to correct them.
+#  - Credentials that have worked before: no, unless the integrator sets
+#    WIFI_FALLBACK_AFTER. The network being down is the overwhelmingly more
+#    likely explanation, and self-provisioning would take a working camera
+#    off the air and require a second setup pass for a router reboot.
+wifi_should_fallback() {
+	wifi_store_load || return 0
+	[ "$WIFI_CFG_VERIFIED" = "1" ] || return 0
+	[ "${WIFI_FALLBACK_AFTER:-0}" -gt 0 ] || return 1
+	[ -n "$WIFI_DISCONNECTED_SINCE" ] || return 1
+	[ $(( $(date +%s) - WIFI_DISCONNECTED_SINCE )) -ge "$WIFI_FALLBACK_AFTER" ]
+}
+
+wifi_apply_hostname() {
+	_name=$(wifi_hostname)
+	[ -n "$_name" ] || return 1
+	echo "$_name" > /etc/hostname 2>/dev/null || return 1
+	hostname -F /etc/hostname 2>/dev/null
+	sed -i '/^127\.0\.1\.1/d' /etc/hosts 2>/dev/null
+	printf '127.0.1.1\t%s\n' "$_name" >> /etc/hosts 2>/dev/null
+	return 0
+}
+
+# Adopt credentials somebody set outside the portal -- in practice, through
+# OpenIPC's own web UI, which writes them to the U-Boot environment and then
+# expects a reboot. Tested and committed exactly like a portal submission, so
+# a wrong password there is no more destructive than a wrong one here.
+#
+# Returns 0 if something was adopted (caller should re-evaluate its state).
+wifi_adopt_external() {
+	wifi_env_changed || return 1
+	wifi_log "Wi-Fi settings were changed outside the setup page; adopting them"
+
+	_fp=$(wifi_env_fingerprint)
+	_ssid_hex=$(printf '%s' "$WIFI_ENV_SSID" | wifi_hex_encode)
+	_type=open
+	_key=
+	if [ -n "$WIFI_ENV_PASS" ]; then
+		if [ "$WIFI_ENABLE_SAE" != "1" ] &&
+		   _psk=$(wifi_derive_psk "$WIFI_ENV_SSID" "$WIFI_ENV_PASS"); then
+			_type=psk
+			_key=$(printf '%s' "$_psk" | wifi_hex_encode)
+		else
+			_type=passphrase
+			_key=$(printf '%s' "$WIFI_ENV_PASS" | wifi_hex_encode)
+		fi
+	fi
+	unset WIFI_ENV_PASS _psk
+
+	# Mark seen before testing: if these credentials are wrong we must not
+	# retry them every ten seconds forever. The user changing them again
+	# produces a new fingerprint and a fresh attempt.
+	wifi_env_mark_seen "$_fp"
+
+	wifi_candidate_save "$_ssid_hex" "$_type" "$_key" 0
+	wifi_test_candidate
+	return 0
+}
+
+# ------------------------------------------------------ command dispatch --
+
+# Handle a queued portal/CLI request. Returns 0 if the caller's current loop
+# should restart its state evaluation.
+wifi_handle_command() {
+	wifi_cmd_take || return 1
+	case "$WIFI_CMD" in
+		connect)
+			[ -n "$WIFI_CMD_SSID" ] || return 1
+			_type=open
+			_key=
+			if [ -n "$WIFI_CMD_KEY" ]; then
+				_raw_ssid=$(wifi_hex_decode "$WIFI_CMD_SSID") || return 1
+				_raw_key=$(wifi_hex_decode "$WIFI_CMD_KEY") || return 1
+				# Pre-hash where possible so the plaintext passphrase is
+				# never written to flash. WPA3-SAE needs the passphrase
+				# itself, so that build keeps it.
+				if [ "$WIFI_ENABLE_SAE" != "1" ] && _psk=$(wifi_derive_psk "$_raw_ssid" "$_raw_key"); then
+					_type=psk
+					_key=$(printf '%s' "$_psk" | wifi_hex_encode)
+				else
+					_type=passphrase
+					_key=$WIFI_CMD_KEY
+				fi
+				unset _raw_key _psk
+			fi
+			wifi_candidate_save "$WIFI_CMD_SSID" "$_type" "$_key" "$WIFI_CMD_HIDDEN"
+			wifi_test_candidate
+			return 0 ;;
+		rescan)
+			wifi_log "rescan requested"
+			_was_ap=0
+			wifi_ap_running && { _was_ap=1; wifi_ap_stop; sleep 1; }
+			wifi_scan_run
+			[ "$_was_ap" = "1" ] && wifi_ap_start
+			return 0 ;;
+		provision)
+			wifi_log "provisioning mode requested"
+			wifi_sta_stop
+			wifi_enter_provisioning
+			return 0 ;;
+		forget)
+			wifi_log "credentials reset requested"
+			wifi_store_clear
+			wifi_candidate_clear
+			wifi_error_clear
+			wifi_sta_stop
+			wifi_enter_provisioning
+			return 0 ;;
+		reconnect)
+			wifi_log "reconnect requested"
+			wifi_ap_stop
+			wifi_try_stored && wifi_state_set CONNECTED
+			return 0 ;;
+	esac
+	return 1
+}
+
+# ------------------------------------------------------------- main loop --
+
+wifi_shutdown() {
+	wifi_log "shutting down"
+	wifi_ap_stop
+	wifi_sta_stop
+	rm -f "$WIFI_MANAGER_PID"
+	exit 0
+}
+
+wifi_main() {
+	mkdir -p "$WIFI_RUN_DIR"
+	chmod 700 "$WIFI_RUN_DIR"
+	echo $$ > "$WIFI_MANAGER_PID"
+	trap wifi_shutdown INT TERM
+
+	wifi_state_set INIT
+
+	if ! wifi_ensure_interface; then
+		# A camera with no working Wi-Fi is still a camera. Record why and
+		# exit cleanly so the rest of the boot -- sensor, encoder, RTSP,
+		# and Ethernet if it is fitted -- is unaffected.
+		wifi_state_set NO_HARDWARE
+		wifi_error_set no_hardware "No Wi-Fi adapter was found."
+		rm -f "$WIFI_MANAGER_PID"
+		return 0
+	fi
+
+	# One-time migration for a device already configured the stock way.
+	wifi_import_uboot_env
+
+	# Record what the environment holds right now, so the watcher below
+	# reacts to genuine changes rather than firing once on every boot.
+	wifi_env_mark_seen
+
+	# S40network runs before us and may have been handed a stanza that
+	# starts its own supplicant -- on an upgrade it will have been, because
+	# setnetwork writes that file into the overlay, which a rootfs reflash
+	# leaves alone. Fix the file, and clear anything ifup already started
+	# from it: the file alone is too late for this boot.
+	wifi_wlan0_stanza_restore
+	wifi_kill_stray_clients
+
+	if ! wifi_store_exists; then
+		wifi_log "no Wi-Fi configuration, starting setup mode"
+		wifi_state_set UNCONFIGURED
+		wifi_enter_provisioning
+	else
+		if wifi_try_stored; then
+			wifi_state_set CONNECTED
+			wifi_store_mark_verified
+			wifi_apply_hostname
+		else
+			wifi_warn "could not join the configured network"
+			if wifi_should_fallback; then
+				wifi_enter_provisioning
+			else
+				wifi_state_set RECONNECTING
+			fi
+		fi
+	fi
+
+	WIFI_DISCONNECTED_SINCE=
+	while :; do
+		wifi_handle_command && continue
+
+		# Someone may have configured Wi-Fi through the camera's own web UI
+		# instead of the setup page, or replaced interfaces.d/wlan0 by
+		# saving that page. Both are normal; neither should need a reboot.
+		wifi_wlan0_stanza_restore
+		case "$(wifi_state_get)" in
+			PROVISIONING|CONNECTED|RECONNECTING|CONNECTING)
+				wifi_adopt_external && continue ;;
+		esac
+
+		case "$(wifi_state_get)" in
+			CONNECTED)
+				if wifi_sta_healthy; then
+					WIFI_DISCONNECTED_SINCE=
+				else
+					wifi_warn "connection lost"
+					WIFI_DISCONNECTED_SINCE=$(date +%s)
+					wifi_state_set RECONNECTING
+					continue
+				fi
+				;;
+
+			RECONNECTING)
+				# wpa_supplicant retries association on its own; the two
+				# cases it cannot fix are a dead supplicant and an
+				# association with no lease, so handle exactly those.
+				if wifi_sta_healthy; then
+					wifi_log "reconnected"
+					wifi_state_set CONNECTED
+					wifi_store_mark_verified
+					WIFI_DISCONNECTED_SINCE=
+					continue
+				fi
+				if ! wifi_sta_running; then
+					wifi_log "supplicant is gone, restarting it"
+					wifi_store_load && wifi_sta_connect && {
+						wifi_state_set CONNECTED
+						continue
+					}
+				elif [ "$(wifi_sta_state)" = "COMPLETED" ] && [ -z "$(wifi_iface_ipv4)" ]; then
+					wifi_log "associated without an address, renewing DHCP"
+					wifi_sta_dhcp_start
+				fi
+				if wifi_should_fallback; then
+					wifi_warn "falling back to setup mode"
+					wifi_sta_stop
+					wifi_enter_provisioning
+					continue
+				fi
+				;;
+
+			PROVISIONING)
+				if ! wifi_ap_running; then
+					wifi_warn "access point stopped unexpectedly, restarting"
+					wifi_enter_provisioning
+					continue
+				fi
+				# If we are only here because a known-good network was
+				# unreachable, go back and look for it again rather than
+				# beaconing forever. A device that has never been
+				# configured stays in setup mode: it is the only way in.
+				if wifi_store_exists && [ "${WIFI_AP_IDLE_TIMEOUT:-0}" -gt 0 ] &&
+				   [ -n "$WIFI_AP_SINCE" ] &&
+				   [ $(( $(date +%s) - WIFI_AP_SINCE )) -ge "$WIFI_AP_IDLE_TIMEOUT" ]; then
+					wifi_log "no one configured the camera, retrying the saved network"
+					wifi_ap_stop
+					if wifi_try_stored; then
+						wifi_state_set CONNECTED
+						wifi_apply_hostname
+					else
+						wifi_enter_provisioning
+					fi
+					continue
+				fi
+				;;
+
+			NO_HARDWARE)
+				return 0
+				;;
+		esac
+
+		sleep "$WIFI_MONITOR_INTERVAL"
+	done
+}
+
+case "${1:-run}" in
+	run)   wifi_main ;;
+	*)     echo "Usage: $0 [run]" >&2; exit 1 ;;
+esac
