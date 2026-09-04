@@ -148,7 +148,8 @@ file.
 
 Verified on hardware (Xiaomi MJSXJ02HL): boots, RTL8189FTV enumerates on SDIO,
 hostapd brings up the setup AP, the LED patterns render, the captive portal is
-reachable, and provisioning completes.
+reachable, provisioning completes, and both resets work — the button held at
+power-on erases the overlay, held while running it clears Wi-Fi only.
 
 Not yet exercised: the reliability matrix in
 [`docs/09-testing.md`](docs/09-testing.md) — power loss during a credential

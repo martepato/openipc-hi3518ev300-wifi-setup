@@ -4,7 +4,11 @@ Notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.1] — 2026-09-04
+
+Fixes for four faults found by running 1.0.0 on a Xiaomi MJSXJ02HL. All four
+are confirmed fixed on that camera: the build was flashed and behaved as
+expected.
 
 ### Fixed
 
@@ -99,4 +103,5 @@ end on a Xiaomi MJSXJ02HL.
 - `start-stop-daemon` returning 0 only means `httpd` forked, not that it could
   bind, so a portal that never came up failed silently.
 
+[1.0.1]: https://github.com/martepato/openipc-hi3518ev300-wifi-setup/releases/tag/v1.0.1
 [1.0.0]: https://github.com/martepato/openipc-hi3518ev300-wifi-setup/releases/tag/v1.0.0
