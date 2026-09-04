@@ -19,10 +19,13 @@ WIFI_LED_WARN_GPIO=52
 WIFI_LED_OK_GPIO=53
 WIFI_LED_ACTIVE_LOW=0
 
-# Hand the LEDs back to the camera's own indicator once it is on the network.
-# S00autoled shows whether majestic is running, which is useful information
-# for a connected camera and misleading during setup.
-WIFI_LED_PAUSE_SERVICE=/etc/init.d/S00autoled
+# Deliberately unset. S00autoled -- the daemon that shows majestic's state on
+# these LEDs -- ships in the device's SD-card autoconfig payload, not in the
+# firmware image, so a camera flashed from tools/build-image.sh does not have
+# it and there is nothing to hand the LEDs back to. wifi-led simply turns them
+# off once the camera is connected, which is the honest behaviour for this
+# image. Point this at an LED daemon if your build has one.
+#WIFI_LED_PAUSE_SERVICE=
 
 # Majestic serves its web UI on port 80 in OpenIPC's generic hi3518ev300
 # images (majestic.yaml: webPort 80), so it and the setup portal cannot both

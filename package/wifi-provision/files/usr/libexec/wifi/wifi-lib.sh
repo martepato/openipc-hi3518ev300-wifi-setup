@@ -84,6 +84,11 @@ WIFI_GPIO_SYSFS=${WIFI_GPIO_SYSFS:-/sys/class/gpio}
 # files on a build host.
 WIFI_PROC=${WIFI_PROC:-/proc}
 
+# Root of the network sysfs tree. Same reason as WIFI_PROC and
+# WIFI_GPIO_SYSFS: so the identity the setup SSID is derived from can be
+# exercised against a directory of ordinary files rather than a real radio.
+WIFI_NET_SYSFS=${WIFI_NET_SYSFS:-/sys/class/net}
+
 # shellcheck source=/dev/null  # path is deliberately variable
 [ -r "$WIFI_DEFAULTS" ] && . "$WIFI_DEFAULTS"
 
@@ -689,8 +694,8 @@ wifi_write_supplicant_conf() {
 # board, hence the final constant -- documented, not silent.
 wifi_device_id() {
 	_src=
-	[ -r "/sys/class/net/$WIFI_IFACE/address" ] &&
-		_src=$(cat "/sys/class/net/$WIFI_IFACE/address" 2>/dev/null)
+	[ -r "$WIFI_NET_SYSFS/$WIFI_IFACE/address" ] &&
+		_src=$(cat "$WIFI_NET_SYSFS/$WIFI_IFACE/address" 2>/dev/null)
 	if [ -z "$_src" ] && command -v fw_printenv >/dev/null 2>&1; then
 		_src=$(fw_printenv -n ethaddr 2>/dev/null)
 	fi
@@ -701,7 +706,20 @@ wifi_device_id() {
 		echo "0000"
 		return 1
 	fi
-	printf '%s' "$_src" | tr -d ':' | tr 'a-z' 'A-Z' | tail -c 5 | head -c 4
+	# The LAST four hex digits of the MAC, so the SSID the owner sees matches
+	# the address printed on the camera or shown by their router.
+	#
+	# This was `tail -c 5 | head -c 4`, which takes the last five characters
+	# and then the FIRST four of those -- digits 9-11 of the MAC rather than
+	# 9-12. A camera whose MAC ended EE:FF advertised itself as OpenIPC-DEEF.
+	# printf %s emits no trailing newline, so tail -c 4 is exactly the last
+	# four characters.
+	_id=$(printf '%s' "$_src" | tr -cd '0-9A-Fa-f' | tr 'a-z' 'A-Z' | tail -c 4)
+	# A short or odd identity source (a truncated SoC serial) would otherwise
+	# yield a one- or two-character suffix; pad so the name is always the
+	# same shape.
+	while [ ${#_id} -lt 4 ]; do _id="0$_id"; done
+	printf '%s' "$_id"
 }
 
 wifi_ap_ssid() {
@@ -822,11 +840,11 @@ wifi_kill_stray_clients() {
 # ------------------------------------------------------------ misc helpers --
 
 wifi_iface_exists() {
-	[ -e "/sys/class/net/$WIFI_IFACE" ]
+	[ -e "$WIFI_NET_SYSFS/$WIFI_IFACE" ]
 }
 
 wifi_iface_has_carrier() {
-	[ "$(cat "/sys/class/net/$WIFI_IFACE/carrier" 2>/dev/null)" = "1" ]
+	[ "$(cat "$WIFI_NET_SYSFS/$WIFI_IFACE/carrier" 2>/dev/null)" = "1" ]
 }
 
 wifi_iface_ipv4() {
