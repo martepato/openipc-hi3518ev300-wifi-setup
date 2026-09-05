@@ -6,10 +6,11 @@
 sh tests/run-tests.sh
 ```
 
-119 checks, no hardware, runs under `dash` (closest common shell to busybox
+160 checks, no hardware, runs under `dash` (closest common shell to busybox
 ash). Covers hex encoding, input validation, credential storage and its
 failure modes, `wpa_supplicant.conf` generation, CGI form decoding, the
-command channel, candidate isolation, JSON encoding and scan-result parsing.
+command channel, candidate isolation, JSON encoding, scan-result parsing, the
+LED patterns, and the `majestic.yaml` edits the image build makes.
 
 `wifi-dnsd` additionally: `gcc -Wall -Wextra -Werror`, then run against real
 DNS queries including malformed ones.

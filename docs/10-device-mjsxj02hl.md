@@ -17,7 +17,9 @@ this camera. Everything below was read out of
 | Reset button | **GPIO 0, active low** (`0` = pressed) | `etc/init.d/S00resetbtn` |
 | LEDs | orange GPIO 52, blue GPIO 53, sysfs, active high | `usr/sbin/led_control.sh` |
 | Flash | 16 MB NOR: 256K fastboot, 64K env, 2048K kernel, 5120K rootfs, 8896K rootfs_data | `usb-burn.xml` |
-| Web UI | majestic on port **85**, not 80 | README |
+| IR-cut filter | two-coil latching solenoid, **GPIO 70 in / GPIO 68 out** | `flash/autoconfig/etc/majestic.yaml`, `usr/sbin/autonight.sh` |
+| IR lamp | **GPIO 54** | same |
+| Web UI | majestic on port **85** in *that* build's autoconfig; **80** in the generic images this project flashes | README, and `majestic.yaml` in the release |
 
 That the driver speaks nl80211 is the detail that mattered most here. Whether
 a Realtek out-of-tree driver exposes cfg80211 is a *build-time* option, not a
@@ -89,9 +91,59 @@ WIFI_BUTTON_ACTIVE_LOW=1                      # 0 = pressed
 WIFI_LED_WARN_GPIO=52                         # orange
 WIFI_LED_OK_GPIO=53                           # blue
 WIFI_LED_ACTIVE_LOW=0
-WIFI_LED_PAUSE_SERVICE=/etc/init.d/S00autoled
-WIFI_PORTAL_STOP_MAJESTIC=0                   # majestic is on 85, not 80
+#WIFI_LED_PAUSE_SERVICE=                      # nothing to hand back to; see below
+WIFI_PORTAL_STOP_MAJESTIC=1                   # majestic holds port 80; see below
 ```
+
+## Day/night hardware: the IR-cut filter and the lamp
+
+These are not Wi-Fi, and they are not preferences either — they are which pins
+the parts are soldered to, and a camera assembled by `tools/build-image.sh`
+has no other way to find out. Until it knows, majestic leaves the day/night
+hardware alone: its web UI greys out the IR-cut toggle with
+*"nightMode.irCutPin1 is not configured"*, and `/night/on` moves nothing.
+
+| Part | Key | Pin |
+|---|---|---|
+| IR-cut filter, swing in (day) | `nightMode.irCutPin1` | 70 |
+| IR-cut filter, swing out (night) | `nightMode.irCutPin2` | 68 |
+| Infrared lamp | `nightMode.backlightPin` | 54 |
+
+The filter is a latching solenoid with two coils — one pulse each way — which
+is why there are two pins. `irCutSingleInvert`, already in the stock file and
+left alone, is for the cheaper one-pin variant that this camera is not.
+
+They live in `boards/mjsxj02hl/majestic.conf`, and `tools/build-image.sh`
+applies them one key at a time to the `majestic.yaml` already in the image
+using `tools/majestic-set.sh` — a host-side stand-in for the camera's own
+`cli -s`, which is an ARM binary. Nothing else in that file moves; the diff
+against OpenIPC's shipped `majestic.yaml` is three added lines.
+
+The device repo's `majestic.yaml` also sets `nightMode.enabled: true` and
+`dncDelay`. Those are **not** carried here, and their absence is not an
+oversight: that file predates the majestic in current images, whose
+`nightMode` section has no `enabled` key at all (`colorToGray`, `irCutPin1`,
+`irCutSingleInvert`, `irCutPin2`, `backlightPin`, `drc`, `lightMonitor`,
+`lightSensorPin`, `lightSensorInvert`, `monitorDelay`, `minThreshold`,
+`maxThreshold`, and no more). The pins alone arm `/night/on`, `/night/ircut`
+and `/night/light`.
+
+### On a camera that is already running
+
+A firmware image carries these in the read-only squashfs, so a fresh flash
+has them. A camera whose `majestic.yaml` has already been copied up to the
+overlay — which happens the first time anything saves a camera setting — keeps
+its own copy, and that copy shadows the new one. Set them there directly:
+
+```sh
+cli -s .nightMode.irCutPin1 70
+cli -s .nightMode.irCutPin2 68
+cli -s .nightMode.backlightPin 54
+killall -HUP majestic
+```
+
+The same three commands are how to apply this on the Buildroot path, where
+`majestic.yaml` comes from the majestic package rather than from this builder.
 
 ## What the LEDs tell you
 

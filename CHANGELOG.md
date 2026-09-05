@@ -4,6 +4,37 @@ Notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **The MJSXJ02HL's day/night pins are baked into the image.** The IR-cut
+  filter (GPIO 70 in, GPIO 68 out) and the infrared lamp (GPIO 54) are
+  properties of the board, and a camera assembled by `tools/build-image.sh`
+  had no way to learn them: majestic greyed out its IR-cut toggle with
+  *"nightMode.irCutPin1 is not configured"* and `/night/on` moved nothing.
+  They now live in `boards/mjsxj02hl/majestic.conf`, confirmed against
+  [OpenIPC/device-mjsxj02hl](https://github.com/OpenIPC/device-mjsxj02hl).
+- `tools/majestic-set.sh` — sets one `section.key` in a `majestic.yaml`
+  in place, a host-side stand-in for the camera's own `cli -s` (an ARM
+  binary, so unusable on the build host). The build applies the board file
+  through it one key at a time, so the diff against OpenIPC's shipped
+  `majestic.yaml` is exactly the lines the board needs and nothing else.
+  Covered by 29 tests, including that a refused set leaves the file untouched.
+
+### Changed
+
+- **The setup page's network list has no rules between rows.** A full-bleed
+  1px border under every row cut straight across the signal and lock icons and
+  fought the rounded hover highlight. Rows are now separated by a small gap,
+  leaving the hover pill as the only thing drawing a shape.
+
+### Fixed
+
+- `docs/10-device-mjsxj02hl.md` still listed the pre-1.0.1 board defaults
+  (`WIFI_PORTAL_STOP_MAJESTIC=0`, `WIFI_LED_PAUSE_SERVICE` set), contradicting
+  both the shipped file and a later section of the same document.
+
 ## [1.0.1] — 2026-09-04
 
 Fixes for four faults found by running 1.0.0 on a Xiaomi MJSXJ02HL. All four

@@ -33,11 +33,16 @@ font-weight:500;padding:.5rem .8rem;font-size:.88rem;width:auto}
 
 /* Network list. The name is the flexible column and is allowed to shrink and
    ellipsize; the signal and lock are fixed-width so they can never ride over
-   it, which the old inline block-character meter did. */
-.net{display:flex;align-items:center;gap:.75rem;width:100%;padding:.75rem .5rem;
+   it, which the old inline block-character meter did.
+
+   No rules between the rows. A full-bleed border under every row cut across
+   the icons and fought the rounded hover highlight; a small gap separates
+   them just as well and leaves the hover pill as the only thing drawing a
+   shape. */
+#netlist{display:flex;flex-direction:column;gap:.15rem}
+.net{display:flex;align-items:center;gap:.75rem;width:100%;padding:.7rem .5rem;
 background:none;border:0;border-radius:.5rem;color:inherit;font:inherit;
 text-align:left;cursor:pointer}
-.net+.net{border-top:1px solid var(--line)}
 .net:hover,.net:focus-visible{background:var(--sel);outline:none}
 .net .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;
 white-space:nowrap}

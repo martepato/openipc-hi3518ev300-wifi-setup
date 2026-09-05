@@ -100,7 +100,8 @@ which SDIO radio is fitted and how it is powered. That gap is confined to one
 file (`/etc/wireless/sdio`) and one variable (`wlandev`).
 
 **Xiaomi MJSXJ02HL is solved** — RTL8189FTV on SDIO, no power GPIO, reset
-button on GPIO 0 — and its profile ships in [`boards/mjsxj02hl/`](boards/mjsxj02hl).
+button on GPIO 0, LEDs on 52/53, IR-cut on 70/68 and the lamp on 54 — and its
+board files ship in [`boards/mjsxj02hl/`](boards/mjsxj02hl).
 Note that the stock `rtl8189fs-generic` profile does **not** work on that
 camera, and fails silently.
 
