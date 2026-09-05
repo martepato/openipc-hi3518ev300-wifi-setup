@@ -1,15 +1,144 @@
 # Building
 
-## Prerequisites
+There are two ways to build, and they have different requirements:
 
-A Linux host with the usual Buildroot dependencies:
+| | What it does | When to use it |
+|---|---|---|
+| [`tools/build-image.sh`](#a-flashable-image-toolsbuild-imagesh) | Layers the provisioning system onto OpenIPC's official release | You want a flashable image and have not changed the kernel |
+| [Buildroot](#a-full-buildroot-build) | Rebuilds the whole firmware from source | You changed the kernel, or you want this in your own OpenIPC build |
+
+## Both paths need Linux on x86-64
+
+Not portability fussiness — a hard constraint with a specific cause. Both
+paths use OpenIPC's ARM cross-toolchain, and that toolchain is distributed as
+a **glibc x86-64 Linux ELF binary**:
+
+```console
+$ file toolchain-wrapper          # what every arm-openipc-*-gcc links to
+ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), dynamically linked,
+interpreter /lib64/ld-linux-x86-64.so.2, for GNU/Linux 3.2.0, stripped
+
+$ ldd toolchain-wrapper
+    libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6
+    /lib64/ld-linux-x86-64.so.2
+```
+
+So it cannot run on macOS or Windows at all — a Mach-O host cannot exec an ELF
+binary, and no amount of Homebrew fixes that — and on an arm64 Linux host only
+under emulation. `tools/build-image.sh` checks this before doing anything and
+tells you so, rather than failing halfway through with a confusing error.
+
+### On macOS or Windows: build in a container
+
+From the root of this repository, with Docker Desktop, OrbStack, Podman or
+Colima running:
+
+```sh
+docker run --rm -it --platform linux/amd64 -v "$PWD:/src" -w /src \
+  debian:bookworm bash -c '
+    apt-get update -qq &&
+    apt-get install -y -qq build-essential coreutils curl file findutils \
+      gawk git pkg-config python3 sed squashfs-tools tar u-boot-tools &&
+    ./tools/build-image.sh'
+```
+
+The images land in `./output/release/` on your own disk — the bind mount means
+nothing is trapped inside the container. `--platform linux/amd64` is
+load-bearing on Apple Silicon: without it Docker gives you an arm64 image and
+the toolchain will not run. Emulation makes it slow — budget 15–30 minutes for
+a first build against a few minutes native — but the result is a normal,
+complete build, byte-for-byte what a Linux host produces.
+
+Podman is the same command with `podman` in place of `docker`.
+
+## A flashable image: `tools/build-image.sh`
+
+### Requirements
+
+```sh
+# Debian / Ubuntu
+sudo apt-get install -y build-essential coreutils curl file findutils gawk \
+    git pkg-config python3 sed squashfs-tools tar u-boot-tools
+
+# Fedora
+sudo dnf install -y make coreutils curl file findutils gawk git \
+    pkgconf-pkg-config python3 sed squashfs-tools tar uboot-tools
+
+# Arch
+sudo pacman -S --needed base-devel coreutils curl file findutils gawk git \
+    pkgconf python sed squashfs-tools tar uboot-tools
+```
+
+The two that are not usually already installed, and the ones that actually
+bite:
+
+- **`mkenvimage`** (`u-boot-tools`) — writes the U-Boot environment image.
+- **`mksquashfs` / `unsquashfs`** (`squashfs-tools`) — unpack and repack the
+  root filesystem.
+
+Nothing else has to be installed: the ARM toolchain, the OpenIPC release
+images, libnl and hostapd's source are all downloaded by the script into
+`output/dl/` and cached there. Expect about 120 MB of downloads on a first
+run.
+
+The script checks every tool before it starts and, if any are missing, prints
+**all** of them together with the install command for your distribution.
+Finding out about one missing package per build is a miserable way to work.
+
+### Running it
+
+```sh
+./tools/build-image.sh              # writes ./output/release/
+./tools/build-image.sh /some/where  # or somewhere else
+```
+
+### The output is reproducible
+
+Two builds of the same commit produce byte-identical files — the whole release
+directory, checked file by file:
+
+```console
+$ ./tools/build-image.sh /tmp/a && ./tools/build-image.sh /tmp/b
+$ for f in $(ls /tmp/a/release); do cmp /tmp/a/release/$f /tmp/b/release/$f; done
+$                                       # silence is the result you want
+```
+
+That matters because this project ships checksums instead of images. If the
+same commit gave a different checksum every run, "the image I built matches
+yours" would be indistinguishable from "I built at a different minute", and
+the checksums would be decoration.
+
+Only two things ever varied, and both are pinned to `SOURCE_DATE_EPOCH`
+(taken from the commit being built, or from the environment if an outer build
+system already set it):
+
+- **The mtimes of files this build installs.** Clamped, not flattened:
+  anything newer than `SOURCE_DATE_EPOCH` is something this build just wrote
+  and gets pinned; anything older is upstream's and keeps the date the release
+  tarball gave it. So `/usr/bin/majestic` still shows OpenIPC's date and
+  `/usr/sbin/wifi-manager` shows the commit's, rather than everything reading
+  1970.
+- **The timestamp mksquashfs writes into the superblock**, via `-mkfs-time`.
+
+Everything else was already deterministic: the kernel and bootloader are
+copied from the release untouched, and hostapd, libnl and `wifi-dnsd` come out
+byte-identical from the pinned toolchain build after build.
+
+To reproduce someone else's image exactly, build the same commit. To pin it
+yourself, set `SOURCE_DATE_EPOCH` before running the script.
+
+## A full Buildroot build
+
+### Requirements
+
+Linux on x86-64, as above, plus Buildroot's usual dependencies:
 
 ```sh
 sudo apt-get install -y build-essential bc bison flex gawk git gperf \
     libncurses-dev libssl-dev python3 rsync unzip wget cpio file whiptail
 ```
 
-## Build
+### Build
 
 ```sh
 git clone https://github.com/OpenIPC/firmware.git

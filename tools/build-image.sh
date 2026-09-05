@@ -16,9 +16,11 @@
 # A full `make BOARD=hi3518ev300_lite` in an OpenIPC checkout is still the
 # right thing when you HAVE changed the kernel; see docs/04-build.md.
 #
-# Needs: curl, squashfs-tools (mksquashfs/unsquashfs), u-boot-tools
-#        (mkenvimage), and a host compiler for nothing at all -- the ARM
-#        toolchain is downloaded.
+# HOST REQUIREMENTS: Linux on x86-64. Not a suggestion -- the ARM toolchain
+# this downloads from OpenIPC is a glibc x86-64 Linux ELF binary, so it
+# cannot execute on macOS, on Windows, or on an arm64 Linux host. On a Mac,
+# run this inside a container; the preflight below prints the command.
+# The tool list lives in NEED_TOOLS, with the package that provides each.
 
 set -euo pipefail
 
@@ -40,8 +42,105 @@ HOSTAPD_COMMIT=a69d6361ef0185aa7d2e4c774bc2de36fe83d81e
 
 say() { printf '\n==> %s\n' "$*"; }
 
-need() { command -v "$1" >/dev/null 2>&1 || { echo "missing tool: $1" >&2; exit 1; }; }
-for t in curl tar git make mksquashfs unsquashfs mkenvimage md5sum sha256sum; do need "$t"; done
+# ------------------------------------------------------------ preflight --
+# Every tool the build actually invokes, with the package that carries it on
+# Debian/Ubuntu, Fedora and Arch. Reported all at once: finding out about
+# one missing package per twenty-minute build is a miserable way to start.
+NEED_TOOLS="
+curl        curl                curl            curl
+tar         tar                 tar             tar
+git         git                 git             git
+make        build-essential     make            base-devel
+file        file                file            file
+nproc       coreutils           coreutils       coreutils
+install     coreutils           coreutils       coreutils
+md5sum      coreutils           coreutils       coreutils
+sha256sum   coreutils           coreutils       coreutils
+stat        coreutils           coreutils       coreutils
+find        findutils           findutils       findutils
+sed         sed                 sed             sed
+awk         gawk                gawk            gawk
+python3     python3             python3         python
+pkg-config  pkg-config          pkgconf-pkg-config pkgconf
+mksquashfs  squashfs-tools      squashfs-tools  squashfs-tools
+unsquashfs  squashfs-tools      squashfs-tools  squashfs-tools
+mkenvimage  u-boot-tools        uboot-tools     uboot-tools
+"
+
+preflight() {
+    _os=$(uname -s)
+    _arch=$(uname -m)
+    if [ "$_os" != "Linux" ] || [ "$_arch" != "x86_64" ]; then
+        cat >&2 <<EOF
+This builder needs Linux on x86-64. You are on $_os/$_arch.
+
+The reason is not portability fussiness: the ARM cross-toolchain it
+downloads from OpenIPC is a glibc x86-64 Linux ELF binary. It cannot be
+executed on macOS or Windows at all, and on an arm64 Linux host only under
+emulation. Installing the missing tools will not change that.
+
+On a Mac (or any other machine with Docker/Podman/OrbStack), build in a
+container instead -- from the root of this repository:
+
+  docker run --rm -it --platform linux/amd64 -v "\$PWD:/src" -w /src \\
+    debian:bookworm bash -c '
+      apt-get update -qq &&
+      apt-get install -y -qq $(printf '%s\n' "$NEED_TOOLS" | awk 'NF {print $2}' | sort -u | tr '\n' ' ' | sed 's/ $//') &&
+      ./tools/build-image.sh'
+
+The images land in ./output/release/ on your own disk. On Apple Silicon the
+x86-64 emulation makes this slow -- budget 15-30 minutes for a first build --
+but it is a normal, complete build, not a degraded one.
+EOF
+        exit 1
+    fi
+
+    _missing=
+    _packages=
+    while read -r _tool _deb _rpm _arch_pkg; do
+        [ -n "$_tool" ] || continue
+        command -v "$_tool" >/dev/null 2>&1 && continue
+        _missing="$_missing $_tool"
+        _packages="$_packages $_deb|$_rpm|$_arch_pkg"
+    done <<EOF
+$NEED_TOOLS
+EOF
+    [ -n "$_missing" ] || return 0
+
+    echo "Missing build tools:$_missing" >&2
+    echo >&2
+    echo "Install them with one of:" >&2
+    for _f in 1 2 3; do
+        case $_f in
+            1) _cmd="  sudo apt-get install -y" ;;
+            2) _cmd="  sudo dnf install -y" ;;
+            3) _cmd="  sudo pacman -S --needed" ;;
+        esac
+        _list=$(printf '%s\n' $_packages | cut -d'|' -f"$_f" | sort -u | tr '\n' ' ' | sed 's/ $//')
+        echo "$_cmd $_list" >&2
+    done
+    exit 1
+}
+preflight
+
+# ------------------------------------------------------ reproducibility --
+# Two builds of the same commit must produce the same rootfs.squashfs, or the
+# checksums this ships are worth nothing: a reviewer cannot tell "the image I
+# built matches yours" from "the image I built was made at a different time".
+#
+# Only two things vary run to run. The mtimes of the files we install (the
+# upstream ones keep the release tarball's dates, and every binary we
+# cross-compile is already byte-identical build to build) and the timestamp
+# mksquashfs writes into the superblock. Both are pinned to SOURCE_DATE_EPOCH
+# -- the cross-distribution convention, so an outer build system that already
+# sets it stays in charge.
+if [ -z "${SOURCE_DATE_EPOCH:-}" ]; then
+    # The commit being built, which is the honest "when was this made".
+    SOURCE_DATE_EPOCH=$(git -C "$REPO" log -1 --format=%ct 2>/dev/null || true)
+    # Not a git checkout (a release tarball, say): fall back to something
+    # fixed rather than to "now", which would defeat the whole point.
+    [ -n "$SOURCE_DATE_EPOCH" ] || SOURCE_DATE_EPOCH=1735689600  # 2025-01-01Z
+fi
 
 mkdir -p "$DL" "$WORK" "$REL"
 
@@ -257,10 +356,32 @@ grep -q 'rtl8189fs-hi3518ev300-mjsxj02hl' "$R/etc/wireless/sdio" || {
     chmod 755 "$R/etc/wireless/sdio"
 }
 
+# Clamp, rather than flatten: anything stamped later than SOURCE_DATE_EPOCH is
+# a file this build just wrote, and gets pinned. Files older than it are
+# upstream's and keep the dates the release tarball gave them, so the image
+# still shows sensible dates instead of 1970 everywhere.
+find "$R" -newermt "@$SOURCE_DATE_EPOCH" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} +
+
 # Match the stock image and the kernel's config: xz, 128K blocks, no xattrs
 # (CONFIG_SQUASHFS_XATTR is off), BCJ ARM filter (CONFIG_XZ_DEC_ARM=y).
-mksquashfs "$R" "$REL/rootfs.squashfs.hi3518ev300" \
-    -comp xz -Xbcj arm -b 131072 -no-xattrs -all-root -noappend -quiet
+# -mkfs-time pins the superblock timestamp; without it the same tree gives a
+# different checksum every run. It landed in squashfs-tools 4.4, so fall back
+# rather than fail on an older one -- the image is still correct, just not
+# byte-comparable with someone else's.
+SQFS_REPRO="-mkfs-time $SOURCE_DATE_EPOCH"
+if ! mksquashfs -help 2>&1 | grep -q -- '-mkfs-time'; then
+    SQFS_REPRO=
+    echo "    NOTE: this mksquashfs has no -mkfs-time; the image will be" >&2
+    echo "          correct but its checksum will not match other builds." >&2
+fi
+# env -u, and not an exported SOURCE_DATE_EPOCH, because mksquashfs 4.6 reads
+# that variable itself and then refuses -mkfs-time alongside it ("SOURCE_DATE_
+# EPOCH and command line options can't be used at the same time"). Passing the
+# flag with the variable cleared is the one form that works on 4.4 through 4.6
+# alike, whether or not the caller has it set in their environment.
+# shellcheck disable=SC2086  # SQFS_REPRO is a flag pair or empty, by construction
+env -u SOURCE_DATE_EPOCH mksquashfs "$R" "$REL/rootfs.squashfs.hi3518ev300" \
+    -comp xz -Xbcj arm -b 131072 -no-xattrs -all-root -noappend -quiet $SQFS_REPRO
 
 # ---------------------------------------------------------------- env ---
 say "Building u-boot environment"

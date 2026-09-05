@@ -38,11 +38,40 @@ Xiaomi MJSXJ02HL. See [Verified vs. untested](#verified-vs-untested).
 
 ### A flashable image for a Xiaomi MJSXJ02HL
 
+**Needs Linux on x86-64** — OpenIPC's ARM toolchain is a Linux x86-64 binary,
+so macOS and Windows need a container. One line either way:
+
+```sh
+# Debian / Ubuntu. Fedora and Arch: docs/04-build.md
+sudo apt-get install -y build-essential coreutils curl file findutils gawk \
+    git pkg-config python3 sed squashfs-tools tar u-boot-tools
+```
+
+`squashfs-tools` and `u-boot-tools` are the two that are rarely already
+installed — the latter is where `mkenvimage` comes from. The script checks for
+all of them before it starts and prints the install command for your
+distribution if any are missing.
+
 ```sh
 git clone https://github.com/martepato/openipc-hi3518ev300-wifi-setup.git
 cd openipc-hi3518ev300-wifi-setup
 ./tools/build-image.sh          # writes ./output/release/
 ```
+
+On a Mac, run the same thing in a container — the images still land in
+`./output/release/` on your own disk:
+
+```sh
+docker run --rm -it --platform linux/amd64 -v "$PWD:/src" -w /src \
+  debian:bookworm bash -c '
+    apt-get update -qq &&
+    apt-get install -y -qq build-essential coreutils curl file findutils \
+      gawk git pkg-config python3 sed squashfs-tools tar u-boot-tools &&
+    ./tools/build-image.sh'
+```
+
+Why a container and not Homebrew, and the same for Windows and arm64 Linux:
+[`docs/04-build.md`](docs/04-build.md#both-paths-need-linux-on-x86-64).
 
 Out comes everything HiTool/HiBurn needs: bootloader, U-Boot environment,
 kernel, root filesystem and the partition table. Flash it, then set up Wi‑Fi
@@ -52,6 +81,10 @@ The builder layers onto OpenIPC's official release rather than rebuilding
 everything, because this project changes neither the kernel nor the
 bootloader: both come out byte-identical to upstream, verified against the
 checksum OpenIPC publishes. Only the root filesystem differs.
+
+The output is reproducible — two builds of the same commit give byte-identical
+files, so the checksums it ships mean something.
+[Why, and how](docs/04-build.md#the-output-is-reproducible).
 
 There is deliberately **no prebuilt image to download** — the assembled
 firmware contains proprietary components this project cannot redistribute.
