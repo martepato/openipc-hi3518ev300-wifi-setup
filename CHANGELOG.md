@@ -4,7 +4,11 @@ Notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.1.0] — 2026-09-05
+
+The IR-cut filter and the infrared lamp were exercised from the web UI on a
+Xiaomi MJSXJ02HL and confirmed working. The network-list change is CSS only
+and has been checked in a browser, not yet on a camera.
 
 ### Added
 
