@@ -16,9 +16,11 @@
 # A full `make BOARD=hi3518ev300_lite` in an OpenIPC checkout is still the
 # right thing when you HAVE changed the kernel; see docs/04-build.md.
 #
-# Needs: curl, squashfs-tools (mksquashfs/unsquashfs), u-boot-tools
-#        (mkenvimage), and a host compiler for nothing at all -- the ARM
-#        toolchain is downloaded.
+# HOST REQUIREMENTS: Linux on x86-64. Not a suggestion -- the ARM toolchain
+# this downloads from OpenIPC is a glibc x86-64 Linux ELF binary, so it
+# cannot execute on macOS, on Windows, or on an arm64 Linux host. On a Mac,
+# run this inside a container; the preflight below prints the command.
+# The tool list lives in NEED_TOOLS, with the package that provides each.
 
 set -euo pipefail
 
@@ -40,8 +42,86 @@ HOSTAPD_COMMIT=a69d6361ef0185aa7d2e4c774bc2de36fe83d81e
 
 say() { printf '\n==> %s\n' "$*"; }
 
-need() { command -v "$1" >/dev/null 2>&1 || { echo "missing tool: $1" >&2; exit 1; }; }
-for t in curl tar git make mksquashfs unsquashfs mkenvimage md5sum sha256sum; do need "$t"; done
+# ------------------------------------------------------------ preflight --
+# Every tool the build actually invokes, with the package that carries it on
+# Debian/Ubuntu, Fedora and Arch. Reported all at once: finding out about
+# one missing package per twenty-minute build is a miserable way to start.
+NEED_TOOLS="
+curl        curl                curl            curl
+tar         tar                 tar             tar
+git         git                 git             git
+make        build-essential     make            base-devel
+file        file                file            file
+nproc       coreutils           coreutils       coreutils
+install     coreutils           coreutils       coreutils
+md5sum      coreutils           coreutils       coreutils
+sha256sum   coreutils           coreutils       coreutils
+stat        coreutils           coreutils       coreutils
+find        findutils           findutils       findutils
+sed         sed                 sed             sed
+awk         gawk                gawk            gawk
+python3     python3             python3         python
+pkg-config  pkg-config          pkgconf-pkg-config pkgconf
+mksquashfs  squashfs-tools      squashfs-tools  squashfs-tools
+unsquashfs  squashfs-tools      squashfs-tools  squashfs-tools
+mkenvimage  u-boot-tools        uboot-tools     uboot-tools
+"
+
+preflight() {
+    _os=$(uname -s)
+    _arch=$(uname -m)
+    if [ "$_os" != "Linux" ] || [ "$_arch" != "x86_64" ]; then
+        cat >&2 <<EOF
+This builder needs Linux on x86-64. You are on $_os/$_arch.
+
+The reason is not portability fussiness: the ARM cross-toolchain it
+downloads from OpenIPC is a glibc x86-64 Linux ELF binary. It cannot be
+executed on macOS or Windows at all, and on an arm64 Linux host only under
+emulation. Installing the missing tools will not change that.
+
+On a Mac (or any other machine with Docker/Podman/OrbStack), build in a
+container instead -- from the root of this repository:
+
+  docker run --rm -it --platform linux/amd64 -v "\$PWD:/src" -w /src \\
+    debian:bookworm bash -c '
+      apt-get update -qq &&
+      apt-get install -y -qq $(printf '%s\n' "$NEED_TOOLS" | awk 'NF {print $2}' | sort -u | tr '\n' ' ' | sed 's/ $//') &&
+      ./tools/build-image.sh'
+
+The images land in ./output/release/ on your own disk. On Apple Silicon the
+x86-64 emulation makes this slow -- budget 15-30 minutes for a first build --
+but it is a normal, complete build, not a degraded one.
+EOF
+        exit 1
+    fi
+
+    _missing=
+    _packages=
+    while read -r _tool _deb _rpm _arch_pkg; do
+        [ -n "$_tool" ] || continue
+        command -v "$_tool" >/dev/null 2>&1 && continue
+        _missing="$_missing $_tool"
+        _packages="$_packages $_deb|$_rpm|$_arch_pkg"
+    done <<EOF
+$NEED_TOOLS
+EOF
+    [ -n "$_missing" ] || return 0
+
+    echo "Missing build tools:$_missing" >&2
+    echo >&2
+    echo "Install them with one of:" >&2
+    for _f in 1 2 3; do
+        case $_f in
+            1) _cmd="  sudo apt-get install -y" ;;
+            2) _cmd="  sudo dnf install -y" ;;
+            3) _cmd="  sudo pacman -S --needed" ;;
+        esac
+        _list=$(printf '%s\n' $_packages | cut -d'|' -f"$_f" | sort -u | tr '\n' ' ' | sed 's/ $//')
+        echo "$_cmd $_list" >&2
+    done
+    exit 1
+}
+preflight
 
 mkdir -p "$DL" "$WORK" "$REL"
 

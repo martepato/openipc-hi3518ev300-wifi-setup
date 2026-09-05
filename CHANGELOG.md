@@ -4,6 +4,25 @@ Notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The build requirements were not documented.** The README said "run
+  `./tools/build-image.sh`" and left you to discover the rest one failure at a
+  time — `mkenvimage` missing was the reported case. The README and
+  `docs/04-build.md` now carry the package list for Debian/Ubuntu, Fedora and
+  Arch, and say plainly that the builder needs **Linux on x86-64**, with the
+  container command for macOS and Windows.
+
+### Changed
+
+- `tools/build-image.sh` checks its host before doing any work: it reports
+  *every* missing tool at once with the install command for the distribution,
+  and refuses a non-Linux or non-x86-64 host with the reason (OpenIPC's ARM
+  toolchain is a glibc x86-64 Linux ELF binary, so Homebrew cannot help) and
+  the Docker command that does work.
+
 ## [1.1.0] — 2026-09-05
 
 The IR-cut filter and the infrared lamp were exercised from the web UI on a

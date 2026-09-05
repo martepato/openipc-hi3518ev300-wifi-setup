@@ -11,6 +11,11 @@ Run it with:
 ./tools/build-image.sh          # writes ./output/release/
 ```
 
+It needs Linux on x86-64 and a short list of packages — chiefly
+`squashfs-tools` and `u-boot-tools`. On a Mac or on Windows it runs in a
+container. Both are in [`docs/04-build.md`](04-build.md); the script checks
+before it starts and tells you what to install.
+
 The text below is shipped verbatim as `README-FLASHING.txt` alongside the
 images.
 
