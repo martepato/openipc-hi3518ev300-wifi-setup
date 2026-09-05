@@ -35,10 +35,24 @@ from the environment automatically and reconnects without any setup pass.
 
 ## First flash on a blank or vendor-firmware camera
 
-Follow OpenIPC's own procedure for the Hi3518EV300 — this project changes
-nothing about it. See <https://openipc.org/> and the OpenIPC wiki. In short:
-a serial console at 115200 8N1, a TFTP server, then `sf` commands from the
-U-Boot prompt.
+Over USB, with no serial console — the boot ROM speaks HiSilicon's USB
+download protocol whatever is on the flash:
+
+```sh
+# macOS and Linux
+hisiburn flash -d ./output/release
+```
+
+[hisiburn](https://github.com/martepato/openipc-hi3518ev300-burner) is a
+purpose-built flasher for this SoC; on Windows the same job is HiTool/HiBurn
+with the build's `usb-burn.xml`. Either way, hold Reset while plugging the USB
+cable in. [`docs/11-flashing-mjsxj02hl.md`](11-flashing-mjsxj02hl.md) has the
+full procedure for the MJSXJ02HL.
+
+If you would rather use a serial console, or you are on a board this has not
+been tried on, OpenIPC's own procedure still applies unchanged — see
+<https://openipc.org/> and the OpenIPC wiki: a serial console at 115200 8N1, a
+TFTP server, then `sf` commands from the U-Boot prompt.
 
 After the first boot, set the board profile so the Wi-Fi driver is loaded:
 
@@ -108,8 +122,14 @@ reboot
 ### A failed flash
 
 The provisioning system lives entirely in the root filesystem. It cannot
-affect U-Boot, so a camera that fails to boot after an update is recovered the
-normal OpenIPC way: serial console, U-Boot prompt, TFTP.
+affect U-Boot, so a camera that fails to boot after an update is recoverable,
+and usually without opening the case: the boot ROM is mask ROM and answers
+even when nothing on the flash is bootable. Hold Reset while plugging in USB
+and flash again — `hisiburn flash -d ./output/release` on macOS or Linux,
+HiTool/HiBurn on Windows.
+
+Serial console, U-Boot prompt and TFTP remain the fallback, and are what to
+reach for on a board these tools have not been tried on.
 
 **Wi-Fi failure never blocks the boot.** If the driver does not load, the
 chip does not enumerate, or `hostapd` will not start, `wifi-manager` logs the

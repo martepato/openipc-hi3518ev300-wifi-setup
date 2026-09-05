@@ -6,6 +6,18 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Flashing without Windows.** The docs now lead with
+  [hisiburn](https://github.com/martepato/openipc-hi3518ev300-burner), a
+  purpose-built USB flasher for this SoC on macOS and Linux: `hisiburn flash
+  -d ./output/release` reads the build's own `usb-burn.xml`, checks every
+  image against the `sha256sums.txt` shipped beside it before erasing
+  anything, and takes about a minute. The HiTool/HiBurn procedure is
+  unchanged and still documented for Windows — both read the same
+  `usb-burn.xml`. A failed flash is also no longer a serial-console job: the
+  boot ROM answers even when nothing on the flash boots.
+
 ### Fixed
 
 - **The build requirements were not documented.** The README said "run
