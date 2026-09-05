@@ -39,7 +39,7 @@ Two things, both deliberate and both explained below.
 
    This camera has 16 MB of flash but the published MJSXJ02HL instructions
    use the 8 MB layout, which gives the root filesystem 5120K and leaves
-   ~11 MB of the chip unused. The root filesystem here is 5,689,344 bytes --
+   ~11 MB of the chip unused. The root filesystem here is about 5.7 MB --
    it does not fit in 5120K.
 
    The layout used is u-boot's own built-in "mtdpartsnor16m", byte for byte:
@@ -52,7 +52,7 @@ Two things, both deliberate and both explained below.
      fastboot         0K   256K
      env            256K    64K
      kernel         320K  3072K
-     rootfs        3392K 10240K   (5.4 MB used, 4.6 MB free)
+     rootfs        3392K 10240K   (5.7 MB used, 4.3 MB free)
      rootfs_data  13632K  2752K   (settings, wiped by factory reset)
 
 2. env.bin PRE-SETS THAT LAYOUT SO NO SERIAL CONSOLE IS NEEDED.
@@ -107,6 +107,18 @@ Base: official openipc.hi3518ev300-nor-lite.tgz. Added:
   ifup does not race the provisioning manager. The original is kept next to
   it as wlan0.stock.
 
+  /etc/majestic.yaml gains three lines, and loses nothing:
+
+      nightMode:
+        irCutPin1: 70        IR-cut filter, swing in  (daylight)
+        irCutPin2: 68        IR-cut filter, swing out (night)
+        backlightPin: 54     infrared lamp
+
+  This camera's day/night wiring, from OpenIPC/device-mjsxj02hl. Without it
+  majestic leaves that hardware alone -- the web UI's IR-cut toggle stays
+  greyed out and night mode moves nothing. Every other setting in that file
+  is OpenIPC's.
+
 
 FLASHING
 --------
@@ -144,13 +156,17 @@ When it alternates:
  3. Pick your Wi-Fi, enter the password, press Connect.
  4. The setup network disappears for up to a minute while the camera tests
     the password. White flicker = testing.
-      - Success: steady blue, then the LED returns to its normal meaning
-        (orange = streamer stopped, blue = running).
+      - Success: steady blue for about three seconds, then both LEDs go
+        out. That is the finished state, not a fault: the daemon that
+        would otherwise show the streamer's state on them is part of the
+        SD-card autoconfig payload, which this image does not include.
       - Wrong password: the setup network comes back by itself and the page
         tells you what was wrong. Nothing was saved; just try again.
 
 Afterwards the camera joins that network on every boot. Its web UI is on
-port 85 (http://camera-ip:85), SSH as root with no password until you set one.
+port 80 (http://camera-ip/) -- the OpenIPC MJSXJ02HL instructions say 85,
+which is true of that build's autoconfig but not of the generic images this
+one is built from. SSH as root with no password until you set one.
 
 
 CHANGING THE WI-FI LATER

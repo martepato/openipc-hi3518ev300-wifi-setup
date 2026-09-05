@@ -190,6 +190,24 @@ if [ -n "$BOARD_PROFILE" ]; then
 			echo "    ${f#./} ($m)"
 		done
 	fi
+	# Board wiring that belongs to majestic rather than to the network -- the
+	# IR-cut and lamp pins. There is nothing to install here: majestic.yaml
+	# comes from the majestic package at build time, so on this path the
+	# values are set on the camera. tools/build-image.sh bakes them in.
+	PROFILE_MAJESTIC=$SELF/boards/$BOARD_PROFILE/majestic.conf
+	if [ -f "$PROFILE_MAJESTIC" ]; then
+		echo "==> $BOARD_PROFILE has camera wiring this path cannot install."
+		echo "    Set it on the camera after flashing:"
+		awk -F= '
+			{ sub(/#.*/, "") }
+			/=/ {
+				k = $1; v = substr($0, index($0, "=") + 1)
+				gsub(/^[ \t]+|[ \t]+$/, "", k)
+				gsub(/^[ \t]+|[ \t]+$/, "", v)
+				if (k != "" && v != "") printf "      cli -s .%s %s\n", k, v
+			}' "$PROFILE_MAJESTIC"
+		echo "      killall -HUP majestic"
+	fi
 	echo "    set it on the camera with:  fw_setenv wlandev $PROFILE_TAG"
 fi
 

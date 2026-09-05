@@ -629,6 +629,113 @@ is "no LEDs configured says nothing" "$_out" ""
 unset WIFI_GPIO_SYSFS WIFI_LIB_DIR
 
 # ---------------------------------------------------------------------------
+section "majestic.yaml settings (tools/majestic-set.sh)"
+
+MJSET=$ROOT/tools/majestic-set.sh
+MJ=$WORK/majestic.yaml
+
+# A miniature of the real file: sections in a fixed order, an indented comment
+# inside one of them, and a key whose name is a prefix of another key's.
+mj_fresh() {
+	cat > "$MJ" <<-'YAML'
+	system:
+	  webPort: 80
+	image:
+	  flip: false
+	nightMode:
+	  # Which way round the filter sits.
+	  colorToGray: true
+	  irCutSingleInvert: false
+	rtsp:
+	  port: 554
+	YAML
+}
+
+mj_get() { awk -v k="$1" '$1 == k ":" { print $2 }' "$MJ"; }
+
+mj_fresh
+sh "$MJSET" "$MJ" nightMode.irCutPin1 70
+sh "$MJSET" "$MJ" nightMode.irCutPin2 68
+sh "$MJSET" "$MJ" nightMode.backlightPin 54
+is "irCutPin1 lands in the file"  "$(mj_get irCutPin1)"    "70"
+is "irCutPin2 lands in the file"  "$(mj_get irCutPin2)"    "68"
+is "backlightPin lands in the file" "$(mj_get backlightPin)" "54"
+is "the keys land inside nightMode" \
+	"$(awk '/^[A-Za-z]/ { s = $1 } /irCutPin1/ { print s }' "$MJ")" "nightMode:"
+is "and at the section's indentation" \
+	"$(grep -c '^  irCutPin1: 70$' "$MJ")" "1"
+
+# Nothing else may move: same sections, same order, comment intact.
+is "sections are untouched" \
+	"$(grep -c '^[A-Za-z]' "$MJ")" "4"
+is "section order is untouched" \
+	"$(grep '^[A-Za-z]' "$MJ" | tr -d ':' | tr '\n' ' ')" "system image nightMode rtsp "
+yes_ grep -q '^  # Which way round the filter sits\.$' "$MJ"
+is "unrelated keys keep their values" "$(mj_get webPort)" "80"
+
+# Setting an existing key replaces it rather than adding a second one.
+sh "$MJSET" "$MJ" nightMode.irCutPin1 71
+is "an existing key is replaced" "$(mj_get irCutPin1)" "71"
+is "and not duplicated" "$(grep -c 'irCutPin1' "$MJ")" "1"
+
+# Re-running the same setting must leave the file byte-identical.
+cp "$MJ" "$MJ.before"
+sh "$MJSET" "$MJ" nightMode.irCutPin1 71
+if cmp -s "$MJ" "$MJ.before"; then ok "re-setting the same value changes nothing"
+else bad "re-setting the same value changes nothing"; fi
+
+# A key whose name is a prefix of an existing one is its own key.
+sh "$MJSET" "$MJ" nightMode.irCut 1
+is "a prefix name does not hijack irCutPin1" "$(mj_get irCutPin1)" "71"
+is "the prefix name gets its own key"        "$(mj_get irCut)"     "1"
+
+# An unknown section is appended rather than silently dropped.
+sh "$MJSET" "$MJ" brandNew.someKey 9
+is "an unknown section is created" "$(mj_get someKey)" "9"
+is "and appended at the end" "$(grep '^[A-Za-z]' "$MJ" | tail -1)" "brandNew:"
+
+# The last section in the file has no following top-level key to trigger the
+# insert, so it is the one case that has to be handled at end of input.
+mj_fresh
+sh "$MJSET" "$MJ" rtsp.enabled true
+is "a key can be added to the last section" "$(mj_get enabled)" "true"
+is "and stays inside it" "$(tail -1 "$MJ")" "  enabled: true"
+
+# Refusals. Each must leave the file exactly as it was.
+mj_fresh
+cp "$MJ" "$MJ.before"
+no_ sh "$MJSET" "$MJ" nightMode.irCut.pin 70
+no_ sh "$MJSET" "$MJ" nightMode 70
+no_ sh "$MJSET" "$MJ" 'nightMode.irCut;reboot' 70
+no_ sh "$MJSET" "$MJ" '$(reboot).x' 70
+no_ sh "$MJSET" "$MJ" nightMode.irCutPin1 ""
+no_ sh "$MJSET" "$MJ" nightMode.irCutPin1 "$(printf '70\nrtsp:\n  port: 5')"
+no_ sh "$MJSET" "$WORK/no-such-file.yaml" nightMode.irCutPin1 70
+if cmp -s "$MJ" "$MJ.before"; then ok "a refused set leaves the file untouched"
+else bad "a refused set leaves the file untouched"; fi
+
+# The board file the build actually applies: parseable, and only the three
+# pins the camera needs.
+MJCONF=$ROOT/boards/mjsxj02hl/majestic.conf
+mj_conf() {
+	awk -F= '
+		{ sub(/#.*/, "") }
+		/=/ {
+			k = $1; v = substr($0, index($0, "=") + 1)
+			gsub(/^[ \t]+|[ \t]+$/, "", k)
+			gsub(/^[ \t]+|[ \t]+$/, "", v)
+			if (k != "" && v != "") print k "=" v
+		}' "$MJCONF"
+}
+is "the board file sets three keys" "$(mj_conf | wc -l | tr -d ' ')" "3"
+is "board pins are the confirmed ones" "$(mj_conf | tr '\n' ' ')" \
+	"nightMode.irCutPin1=70 nightMode.irCutPin2=68 nightMode.backlightPin=54 "
+
+mj_fresh
+mj_conf | while IFS='=' read -r k v; do sh "$MJSET" "$MJ" "$k" "$v"; done
+is "the board file applies cleanly" "$(mj_get backlightPin)" "54"
+
+# ---------------------------------------------------------------------------
 printf '\n%s\n' "-----------------------------------------"
 printf '%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

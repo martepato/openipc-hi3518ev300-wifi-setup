@@ -228,6 +228,27 @@ if [ -d "$REPO/boards/mjsxj02hl/rootfs" ]; then
     done
 fi
 
+# Board wiring that belongs to majestic rather than to the network: the IR-cut
+# filter and lamp pins. Applied key by key to the majestic.yaml already in the
+# image, so the rest of that file stays whatever OpenIPC shipped.
+MJCONF=$REPO/boards/mjsxj02hl/majestic.conf
+if [ -f "$MJCONF" ]; then
+    echo "    camera settings (/etc/majestic.yaml):"
+    awk -F= '
+        { sub(/#.*/, "") }
+        /=/ {
+            k = $1; v = substr($0, index($0, "=") + 1)
+            gsub(/^[ \t]+|[ \t]+$/, "", k)
+            gsub(/^[ \t]+|[ \t]+$/, "", v)
+            if (k != "" && v != "") print k, v
+        }' "$MJCONF" > "$WORK/majestic.settings"
+    [ -s "$WORK/majestic.settings" ] || { echo "ABORT: $MJCONF sets nothing" >&2; exit 1; }
+    while read -r k v; do
+        sh "$REPO/tools/majestic-set.sh" "$R/etc/majestic.yaml" "$k" "$v"
+        echo "      $k: $v"
+    done < "$WORK/majestic.settings"
+fi
+
 grep -q 'rtl8189fs-hi3518ev300-mjsxj02hl' "$R/etc/wireless/sdio" || {
     awk -v prof="$REPO/boards/mjsxj02hl/profile.sh" '
         /^exit 1$/ && !d { while ((getline l < prof) > 0) print l; close(prof); print ""; d=1 }

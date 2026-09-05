@@ -14,8 +14,11 @@ is which SDIO radio your board has and how it is powered.
    what each register write or GPIO does; a profile nobody can explain is one
    nobody can fix later.
 3. Add `boards/<name>/defaults` if the board has a button or LEDs.
-4. Test with `./tools/install-into-openipc.sh ../firmware <defconfig> <name>`.
-5. Say in the PR what you verified on real hardware and what you did not.
+4. Add `boards/<name>/majestic.conf` if `tools/build-image.sh` covers your
+   board and it has day/night hardware — the IR-cut and lamp pins, which
+   majestic cannot discover on its own. Board *wiring* only; see **Scope**.
+5. Test with `./tools/install-into-openipc.sh ../firmware <defconfig> <name>`.
+6. Say in the PR what you verified on real hardware and what you did not.
 
 Please do not guess register values. A profile that was never run on the
 hardware is worse than no profile, because it looks authoritative.
@@ -26,7 +29,7 @@ hardware is worse than no profile, because it looks authoritative.
 sh tests/run-tests.sh
 ```
 
-119 checks, no hardware needed. They run under `dash`, which is the closest
+160 checks, no hardware needed. They run under `dash`, which is the closest
 common shell to the busybox `ash` on the camera — `bash` will hide portability
 bugs, so do not test only with it.
 
@@ -83,3 +86,11 @@ key material at its default verbosity — but skim before posting publicly.
 This project does Wi‑Fi provisioning. It is not a place for camera tuning,
 streaming features or general OpenIPC changes — those belong upstream at
 [OpenIPC/firmware](https://github.com/OpenIPC/firmware).
+
+The one deliberate exception is **board wiring** in `boards/<name>/`: which
+pin the reset button, the LEDs, the IR-cut filter and the lamp are soldered
+to. Those are facts about the hardware, not preferences, and a camera
+assembled by `tools/build-image.sh` has nowhere else to learn them — the
+values that would normally arrive with a vendor image are exactly what this
+builder does not get. Bitrate, resolution, OSD and the rest are tuning: set
+them on the camera with `cli -s`, not here.
