@@ -4,7 +4,12 @@ Notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.2.0] — 2026-09-05
+
+Everything here is about getting the firmware built and onto a camera, which
+until now assumed a Linux build host and a Windows machine to flash from.
+Neither assumption was written down. No change to what runs on the camera:
+the root filesystem's contents are identical to 1.1.0's.
 
 ### Added
 
