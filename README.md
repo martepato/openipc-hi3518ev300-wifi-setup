@@ -82,6 +82,10 @@ everything, because this project changes neither the kernel nor the
 bootloader: both come out byte-identical to upstream, verified against the
 checksum OpenIPC publishes. Only the root filesystem differs.
 
+The output is reproducible — two builds of the same commit give byte-identical
+files, so the checksums it ships mean something.
+[Why, and how](docs/04-build.md#the-output-is-reproducible).
+
 There is deliberately **no prebuilt image to download** — the assembled
 firmware contains proprietary components this project cannot redistribute.
 [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md) explains exactly why, and

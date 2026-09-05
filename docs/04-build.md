@@ -92,6 +92,41 @@ Finding out about one missing package per build is a miserable way to work.
 ./tools/build-image.sh /some/where  # or somewhere else
 ```
 
+### The output is reproducible
+
+Two builds of the same commit produce byte-identical files — the whole release
+directory, checked file by file:
+
+```console
+$ ./tools/build-image.sh /tmp/a && ./tools/build-image.sh /tmp/b
+$ for f in $(ls /tmp/a/release); do cmp /tmp/a/release/$f /tmp/b/release/$f; done
+$                                       # silence is the result you want
+```
+
+That matters because this project ships checksums instead of images. If the
+same commit gave a different checksum every run, "the image I built matches
+yours" would be indistinguishable from "I built at a different minute", and
+the checksums would be decoration.
+
+Only two things ever varied, and both are pinned to `SOURCE_DATE_EPOCH`
+(taken from the commit being built, or from the environment if an outer build
+system already set it):
+
+- **The mtimes of files this build installs.** Clamped, not flattened:
+  anything newer than `SOURCE_DATE_EPOCH` is something this build just wrote
+  and gets pinned; anything older is upstream's and keeps the date the release
+  tarball gave it. So `/usr/bin/majestic` still shows OpenIPC's date and
+  `/usr/sbin/wifi-manager` shows the commit's, rather than everything reading
+  1970.
+- **The timestamp mksquashfs writes into the superblock**, via `-mkfs-time`.
+
+Everything else was already deterministic: the kernel and bootloader are
+copied from the release untouched, and hostapd, libnl and `wifi-dnsd` come out
+byte-identical from the pinned toolchain build after build.
+
+To reproduce someone else's image exactly, build the same commit. To pin it
+yourself, set `SOURCE_DATE_EPOCH` before running the script.
+
 ## A full Buildroot build
 
 ### Requirements

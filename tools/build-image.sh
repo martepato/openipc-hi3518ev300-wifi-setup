@@ -123,6 +123,25 @@ EOF
 }
 preflight
 
+# ------------------------------------------------------ reproducibility --
+# Two builds of the same commit must produce the same rootfs.squashfs, or the
+# checksums this ships are worth nothing: a reviewer cannot tell "the image I
+# built matches yours" from "the image I built was made at a different time".
+#
+# Only two things vary run to run. The mtimes of the files we install (the
+# upstream ones keep the release tarball's dates, and every binary we
+# cross-compile is already byte-identical build to build) and the timestamp
+# mksquashfs writes into the superblock. Both are pinned to SOURCE_DATE_EPOCH
+# -- the cross-distribution convention, so an outer build system that already
+# sets it stays in charge.
+if [ -z "${SOURCE_DATE_EPOCH:-}" ]; then
+    # The commit being built, which is the honest "when was this made".
+    SOURCE_DATE_EPOCH=$(git -C "$REPO" log -1 --format=%ct 2>/dev/null || true)
+    # Not a git checkout (a release tarball, say): fall back to something
+    # fixed rather than to "now", which would defeat the whole point.
+    [ -n "$SOURCE_DATE_EPOCH" ] || SOURCE_DATE_EPOCH=1735689600  # 2025-01-01Z
+fi
+
 mkdir -p "$DL" "$WORK" "$REL"
 
 # ---------------------------------------------------------------- fetch --
@@ -337,10 +356,32 @@ grep -q 'rtl8189fs-hi3518ev300-mjsxj02hl' "$R/etc/wireless/sdio" || {
     chmod 755 "$R/etc/wireless/sdio"
 }
 
+# Clamp, rather than flatten: anything stamped later than SOURCE_DATE_EPOCH is
+# a file this build just wrote, and gets pinned. Files older than it are
+# upstream's and keep the dates the release tarball gave them, so the image
+# still shows sensible dates instead of 1970 everywhere.
+find "$R" -newermt "@$SOURCE_DATE_EPOCH" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} +
+
 # Match the stock image and the kernel's config: xz, 128K blocks, no xattrs
 # (CONFIG_SQUASHFS_XATTR is off), BCJ ARM filter (CONFIG_XZ_DEC_ARM=y).
-mksquashfs "$R" "$REL/rootfs.squashfs.hi3518ev300" \
-    -comp xz -Xbcj arm -b 131072 -no-xattrs -all-root -noappend -quiet
+# -mkfs-time pins the superblock timestamp; without it the same tree gives a
+# different checksum every run. It landed in squashfs-tools 4.4, so fall back
+# rather than fail on an older one -- the image is still correct, just not
+# byte-comparable with someone else's.
+SQFS_REPRO="-mkfs-time $SOURCE_DATE_EPOCH"
+if ! mksquashfs -help 2>&1 | grep -q -- '-mkfs-time'; then
+    SQFS_REPRO=
+    echo "    NOTE: this mksquashfs has no -mkfs-time; the image will be" >&2
+    echo "          correct but its checksum will not match other builds." >&2
+fi
+# env -u, and not an exported SOURCE_DATE_EPOCH, because mksquashfs 4.6 reads
+# that variable itself and then refuses -mkfs-time alongside it ("SOURCE_DATE_
+# EPOCH and command line options can't be used at the same time"). Passing the
+# flag with the variable cleared is the one form that works on 4.4 through 4.6
+# alike, whether or not the caller has it set in their environment.
+# shellcheck disable=SC2086  # SQFS_REPRO is a flag pair or empty, by construction
+env -u SOURCE_DATE_EPOCH mksquashfs "$R" "$REL/rootfs.squashfs.hi3518ev300" \
+    -comp xz -Xbcj arm -b 131072 -no-xattrs -all-root -noappend -quiet $SQFS_REPRO
 
 # ---------------------------------------------------------------- env ---
 say "Building u-boot environment"

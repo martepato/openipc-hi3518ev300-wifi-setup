@@ -17,6 +17,13 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The image build is reproducible.** Two builds of the same commit now give
+  byte-identical files, checked across the whole release directory. Before,
+  every run produced a different `rootfs.squashfs` checksum from identical
+  content — `install` stamps files with the build time and mksquashfs records
+  mtimes — which made the checksums this project ships meaningless as a way to
+  confirm you built the same thing. Both sources are pinned to
+  `SOURCE_DATE_EPOCH`, taken from the commit being built.
 - `tools/build-image.sh` checks its host before doing any work: it reports
   *every* missing tool at once with the install command for the distribution,
   and refuses a non-Linux or non-x86-64 host with the reason (OpenIPC's ARM
