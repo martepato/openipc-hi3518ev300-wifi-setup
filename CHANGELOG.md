@@ -22,6 +22,13 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `majestic.yaml` is exactly the lines the board needs and nothing else.
   Covered by 29 tests, including that a refused set leaves the file untouched.
 
+### Changed
+
+- **The setup page's network list has no rules between rows.** A full-bleed
+  1px border under every row cut straight across the signal and lock icons and
+  fought the rounded hover highlight. Rows are now separated by a small gap,
+  leaving the hover pill as the only thing drawing a shape.
+
 ### Fixed
 
 - `docs/10-device-mjsxj02hl.md` still listed the pre-1.0.1 board defaults
