@@ -3,7 +3,7 @@
 # Copyright (c) OpenIPC  https://openipc.org  MIT License
 #
 # build-image.sh -- produce a flashable OpenIPC image with Wi-Fi provisioning
-# for the Xiaomi MJSXJ02HL (Hi3518EV300), ready for HiTool / HiBurn.
+# for the Xiaomi MJSXJ02HL (Hi3518EV300), ready for hisiburn or HiTool/HiBurn.
 #
 #   ./tools/build-image.sh [output-dir]
 #
@@ -481,3 +481,13 @@ cp "$REPO/docs/11-flashing-mjsxj02hl.md" "$REL/README-FLASHING.md" 2>/dev/null |
 
 say "Done -- $REL"
 ls -la "$REL"
+cat <<EOF
+
+Flash it over USB -- no serial console needed:
+
+  macOS / Linux   hisiburn flash -d "$REL"
+                  https://github.com/martepato/openipc-hi3518ev300-burner
+  Windows         load $REL/usb-burn.xml into HiTool / HiBurn
+
+Step by step, and what diverges from stock: $REL/README-FLASHING.md
+EOF

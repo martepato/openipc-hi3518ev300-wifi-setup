@@ -5,6 +5,11 @@ OpenIPC's official `hi3518ev300` release. The kernel and bootloader come out
 byte-identical to that release (checked against its own `md5sum` file), so the
 only thing to review is the root filesystem.
 
+Flashing needs no serial console on any platform:
+[hisiburn](https://github.com/martepato/openipc-hi3518ev300-burner) on macOS
+and Linux, HiTool/HiBurn on Windows. Both read the same `usb-burn.xml` the
+build writes.
+
 Run it with:
 
 ```sh
@@ -23,17 +28,20 @@ images.
 OpenIPC + Wi-Fi provisioning for Xiaomi MJSXJ02HL (Hi3518EV300)
 ================================================================
 
-Flash these five files with HiTool / HiBurn, then set up Wi-Fi from your
-phone. No serial console is required.
+Flash these files over USB, then set up Wi-Fi from your phone. No serial
+console is required, on any platform.
 
   u-boot-hi3518ev300-universal.bin   bootloader   STOCK, unmodified
   env.bin                            boot config  NEW  (see "Divergence")
   uImage.hi3518ev300                 kernel       STOCK, unmodified
   rootfs.squashfs.hi3518ev300        filesystem   MODIFIED
-  usb-burn.xml                       partition table for HiBurn
+  usb-burn.xml                       partition table
 
   uboot-env.txt                      the env in readable form (reference)
   md5sums.txt / sha256sums.txt       checksums
+
+Two ways to write them, below: hisiburn on macOS and Linux, HiTool/HiBurn on
+Windows. Both produce the same camera.
 
 
 WHAT DIVERGES FROM STOCK OPENIPC
@@ -125,8 +133,38 @@ Base: official openipc.hi3518ev300-nor-lite.tgz. Added:
   is OpenIPC's.
 
 
-FLASHING
---------
+FLASHING ON macOS OR LINUX  (hisiburn)
+--------------------------------------
+hisiburn is a purpose-built flasher for this SoC over USB:
+
+    https://github.com/martepato/openipc-hi3518ev300-burner
+
+    brew install libusb uv          # or: apt install libusb-1.0-0
+    uv tool install git+https://github.com/martepato/openipc-hi3518ev300-burner
+
+Then, from this directory:
+
+    hisiburn flash -d .
+
+That is the whole thing. It reads usb-burn.xml for the layout, checks every
+image against sha256sums.txt BEFORE it erases anything, loads the U-Boot
+sitting next to it into RAM, writes each partition and reboots the camera.
+About a minute. Add --dry-run first to print the plan and touch nothing.
+
+Start the command, THEN unplug the camera, hold its Reset button, plug the
+USB cable back in while still holding, and keep holding for a couple of
+seconds. It waits 30 seconds for the camera to appear, so that order works
+out. Use a data cable -- the bundled one is power-only.
+
+Once the camera has been flashed once, later rootfs-only updates are:
+
+    hisiburn flash -d . --only rootfs
+
+which leaves the bootloader, environment and kernel alone.
+
+
+FLASHING ON WINDOWS  (HiTool / HiBurn)
+--------------------------------------
 Same procedure as the OpenIPC MJSXJ02HL instructions; only the files and the
 partition table differ.
 
@@ -141,7 +179,10 @@ partition table differ.
  5. Press Burn, accept the erase warning, then hold Reset and connect USB.
     Flashing takes about a minute.
 
-VERIFY BEFORE YOU BURN: the checksums in md5sums.txt.
+For a rootfs-only update, load usb-burn-rootfs-only.xml instead.
+
+VERIFY BEFORE YOU BURN: the checksums in md5sums.txt. (hisiburn does this
+for you, against sha256sums.txt, and refuses to erase if anything mismatches.)
 
 
 FIRST BOOT
@@ -187,6 +228,12 @@ Or over SSH: `wifi-ctl provision`, `wifi-ctl forget`, `wifi-ctl status`.
 
 TROUBLESHOOTING
 ---------------
+The camera is bricked / a flash was interrupted
+    It is almost certainly fine. The boot ROM is mask ROM and always answers,
+    so hold Reset while plugging in and flash again. On macOS or Linux:
+        hisiburn flash -d .
+    A camera that will not boot at all still enumerates for the flasher.
+
 Kernel panic / "unable to mount root" after flashing
     env.bin did not take. Confirm the env partition really was written. With
     a serial console (115200 8N1), interrupt u-boot and run:

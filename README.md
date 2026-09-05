@@ -73,9 +73,24 @@ docker run --rm -it --platform linux/amd64 -v "$PWD:/src" -w /src \
 Why a container and not Homebrew, and the same for Windows and arm64 Linux:
 [`docs/04-build.md`](docs/04-build.md#both-paths-need-linux-on-x86-64).
 
-Out comes everything HiTool/HiBurn needs: bootloader, U-Boot environment,
-kernel, root filesystem and the partition table. Flash it, then set up Wi‑Fi
-from your phone — [`docs/11-flashing-mjsxj02hl.md`](docs/11-flashing-mjsxj02hl.md).
+Out comes everything a flasher needs: bootloader, U-Boot environment, kernel,
+root filesystem and the partition table. Write it over USB — no serial console,
+on any platform:
+
+```sh
+# macOS and Linux, with hisiburn:
+uv tool install git+https://github.com/martepato/openipc-hi3518ev300-burner
+hisiburn flash -d ./output/release
+```
+
+[hisiburn](https://github.com/martepato/openipc-hi3518ev300-burner) is a
+purpose-built flasher for this SoC. It reads the build's own `usb-burn.xml`,
+checks every image against the `sha256sums.txt` shipped beside it before
+erasing anything, and takes about a minute. On Windows, load the same
+`usb-burn.xml` into HiTool/HiBurn.
+
+Then set up Wi‑Fi from your phone. Both paths, step by step:
+[`docs/11-flashing-mjsxj02hl.md`](docs/11-flashing-mjsxj02hl.md).
 
 The builder layers onto OpenIPC's official release rather than rebuilding
 everything, because this project changes neither the kernel nor the
@@ -156,7 +171,7 @@ diagnostic commands to settle it. Nothing about the chip has been invented.
 | [08-security.md](docs/08-security.md) | Injection, credential handling, and the open-AP trade-off |
 | [09-testing.md](docs/09-testing.md) | Hardware, provisioning, security and reliability test plan |
 | [10-device-mjsxj02hl.md](docs/10-device-mjsxj02hl.md) | Xiaomi MJSXJ02HL specifics |
-| [11-flashing-mjsxj02hl.md](docs/11-flashing-mjsxj02hl.md) | Building and flashing with HiTool/HiBurn |
+| [11-flashing-mjsxj02hl.md](docs/11-flashing-mjsxj02hl.md) | Flashing: hisiburn on macOS/Linux, HiTool/HiBurn on Windows |
 
 ## Footprint
 
